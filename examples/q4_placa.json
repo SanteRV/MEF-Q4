@@ -1,0 +1,19 @@
+{
+  "description": "DEMO 1x1 — cuadrado unitario centrado en el origen, nodos en orden ++,-+,--,+-. Carga diagonal en N1, resto fijos.",
+  "nodes": [
+    {"id": 0, "x":  0.5, "y":  0.5, "restraint_x": false, "restraint_y": false, "load_x": 100.0, "load_y": 100.0},
+    {"id": 1, "x": -0.5, "y":  0.5, "restraint_x": true,  "restraint_y": true},
+    {"id": 2, "x": -0.5, "y": -0.5, "restraint_x": true,  "restraint_y": true},
+    {"id": 3, "x":  0.5, "y": -0.5, "restraint_x": true,  "restraint_y": true}
+  ],
+  "elements": [
+    {
+      "id": 0,
+      "nodes": [0, 1, 2, 3],
+      "E": 2173706.0,
+      "nu": 0.15,
+      "t": 0.1,
+      "plane_stress": true
+    }
+  ]
+}

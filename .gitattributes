@@ -1,0 +1,29 @@
+# Normalizacion de fin de linea. Evita diffs ruidosos y warnings CRLF/LF
+# entre colaboradores en Windows/Linux/macOS.
+
+# Por defecto: git normaliza a LF en el repo, checkout segun el SO.
+* text=auto eol=lf
+
+# Scripts especificos de Windows: deben conservar CRLF para no romperse.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+
+# Codigo y texto: LF explicito.
+*.py   text eol=lf
+*.md   text eol=lf
+*.txt  text eol=lf
+*.json text eol=lf
+*.spec text eol=lf
+*.cff  text eol=lf
+
+# Binarios: nunca tocar (evita corrupcion).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.xlsx binary
+*.zip  binary
+*.exe  binary

@@ -1,0 +1,67 @@
+# === Entorno virtual de Python ===
+# Se recrea con: python -m venv venv  +  pip install -r requirements.txt
+venv/
+.venv/
+env/
+ENV/
+
+# === Bytecode y cache de Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+
+# === PyInstaller: salidas de build (NUNCA a git) ===
+# IMPORTANTE: build_exe.spec y build_exe.bat SON fuente y SI se versionan.
+# Se ignora unicamente lo GENERADO. dist/ contiene el ZIP de ~138 MB que
+# supera el limite de 100 MB de GitHub y haria FALLAR el push por completo.
+build/
+dist/
+*.manifest
+
+# === Ejecutables y distribuibles generados ===
+*.exe
+*.zip
+
+# === Salidas de tests y ejecuciones del aplicativo ===
+out/
+resultados_mef.pdf
+test.pdf
+test.xlsx
+test_project.json
+test_q4.pdf
+test_q4.xlsx
+
+# === Excel de referencia local (no redistribuir) ===
+# PLANE.xlsx es material de validacion privado del autor.
+PLANE.xlsx
+*.xlsx
+
+# === Empaquetado / distribucion Python ===
+*.egg-info/
+.eggs/
+*.egg
+pip-wheel-metadata/
+
+# === Cache de herramientas de desarrollo ===
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# === Editores / IDEs ===
+.vscode/
+.idea/
+*.swp
+*~
+
+# === Sistema operativo ===
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+# macOS
+.DS_Store
+
+# === Instrucciones internas para Claude Code (no publicar) ===
+CLAUDE.md

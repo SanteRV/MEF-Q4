@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "Si utilizas este software en tu trabajo, por favor citalo como se indica."
+title: "MEF-Q4: Aplicativo didactico de Elementos Finitos con elemento cuadrilatero bilineal Q4"
+abstract: >-
+  Aplicativo de escritorio didactico para el analisis por el Metodo de Elementos
+  Finitos con el elemento cuadrilatero bilineal Q4 (4 nodos, 2 GDL por nodo,
+  isoparametrico). Desarrolla el procedimiento completo en 15 pasos y presenta el
+  modelo en una vista 3D orbital. Trabajo de tesis de Ingenieria Civil.
+type: software
+authors:
+  - family-names: Carbajal
+    given-names: Manuel
+# Completar antes de publicar la version final de la tesis:
+# version: "2.1"
+# date-released: 2026-07-06
+# doi: 10.5281/zenodo.XXXXXXX   # se obtiene archivando el repo en Zenodo
+# license: MIT
+keywords:
+  - "elementos finitos"
+  - "MEF"
+  - "FEM"
+  - "elemento Q4"
+  - "cuadrilatero bilineal"
+  - "isoparametrico"
+  - "ingenieria civil"
+  - "PySide6"
+license: MIT
