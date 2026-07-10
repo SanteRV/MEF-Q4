@@ -82,7 +82,8 @@ def _fig_gauss_points() -> Path:
                    edgecolor="#888", linewidth=1.5)
     ax.add_patch(poly)
     g = 1 / np.sqrt(3)
-    gps = [(+g, +g, "GP₁"), (-g, +g, "GP₂"), (-g, -g, "GP₃"), (+g, -g, "GP₄")]
+    # Orden de los GP = orden de los nodos (--, +-, ++, -+), como en GAUSS_2X2
+    gps = [(-g, -g, "GP₁"), (+g, -g, "GP₂"), (+g, +g, "GP₃"), (-g, +g, "GP₄")]
     for x, y, lbl in gps:
         ax.plot(x, y, "*", color="#d62728", markersize=18)
         ax.annotate(lbl, (x, y), textcoords="offset points",

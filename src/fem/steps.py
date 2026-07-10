@@ -68,21 +68,34 @@ class Procedure:
 
 
 def _shape_function_text() -> pd.DataFrame:
-    return pd.DataFrame([
-        {"Función": "N1", "Expresión": "1/4 · (1 + ξ)(1 + η)", "ξi": +1, "ηi": +1},
-        {"Función": "N2", "Expresión": "1/4 · (1 − ξ)(1 + η)", "ξi": -1, "ηi": +1},
-        {"Función": "N3", "Expresión": "1/4 · (1 − ξ)(1 − η)", "ξi": -1, "ηi": -1},
-        {"Función": "N4", "Expresión": "1/4 · (1 + ξ)(1 − η)", "ξi": +1, "ηi": -1},
-    ])
+    """Tabla de las 4 funciones de forma, GENERADA desde NATURAL_COORDS.
+
+    Al derivarse de la misma constante que usa el cálculo, la tabla nunca
+    puede quedar desincronizada de la convención de nodos del programa
+    (la de la guía: N1=(--), N2=(+-), N3=(++), N4=(-+)).
+    """
+    rows = []
+    for i, (xi_i, eta_i) in enumerate(NATURAL_COORDS, start=1):
+        s_xi = "+" if xi_i > 0 else "−"
+        s_eta = "+" if eta_i > 0 else "−"
+        rows.append({
+            "Función": f"N{i}",
+            "Expresión": f"1/4 · (1 {s_xi} ξ)(1 {s_eta} η)",
+            "ξi": int(xi_i),
+            "ηi": int(eta_i),
+        })
+    return pd.DataFrame(rows)
 
 
 def _gauss_points_text() -> pd.DataFrame:
-    g = 1.0 / np.sqrt(3.0)
+    """Tabla de los 4 puntos de Gauss, GENERADA desde GAUSS_2X2.
+
+    Mismo criterio que _shape_function_text: la tabla refleja siempre el
+    orden real de integración (GP i en el cuadrante del nodo i).
+    """
     return pd.DataFrame([
-        {"Punto": "GP1", "ξ": +g, "η": +g, "Peso": 1.0},
-        {"Punto": "GP2", "ξ": -g, "η": +g, "Peso": 1.0},
-        {"Punto": "GP3", "ξ": -g, "η": -g, "Peso": 1.0},
-        {"Punto": "GP4", "ξ": +g, "η": -g, "Peso": 1.0},
+        {"Punto": f"GP{i}", "ξ": xi, "η": eta, "Peso": w}
+        for i, (xi, eta, w) in enumerate(GAUSS_2X2, start=1)
     ])
 
 
