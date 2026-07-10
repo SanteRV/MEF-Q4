@@ -1345,6 +1345,16 @@ class MainWindow(QMainWindow):
         btn_fit.clicked.connect(self.canvas_3d.fit_view)
         col.addWidget(btn_fit)
 
+        # Pista de interaccion (picking + identificacion de ejes)
+        lbl_hint = QLabel(
+            "Clic sobre un nodo o sobre el área de un elemento para ver "
+            "su información junto al cursor.\n\n"
+            "Ejes: X (rojo), Y (verde), Z (azul)."
+        )
+        lbl_hint.setWordWrap(True)
+        lbl_hint.setStyleSheet("color: #666; font-size: 11px;")
+        col.addWidget(lbl_hint)
+
         col.addStretch(1)
         right.setMaximumWidth(240)
         root.addWidget(right, 0)

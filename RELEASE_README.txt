@@ -75,6 +75,10 @@ PESTAÑAS DEL APLICATIVO
    apoyos, cargas y etiquetas de nodos. Slider de escala para la
    deformada. Selector de campo para colorear según σx, σy, τxy,
    σ_VM, σ1 o σ2. Botón "Centrar vista".
+   CLIC sobre un nodo o sobre el área de un elemento muestra su
+   información junto al cursor (coordenadas, apoyos, cargas,
+   desplazamientos; o nodos, área, material y esfuerzo promedio).
+   Los ejes están etiquetados: X (rojo), Y (verde), Z (azul).
 
 
 HERRAMIENTAS Y EXPORTACIONES

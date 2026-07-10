@@ -21,9 +21,9 @@ from __future__ import annotations
 from typing import Optional
 import numpy as np
 
-from PySide6.QtCore import Qt, QObject, Signal
-from PySide6.QtGui import QColor, QVector3D, QFont
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import Qt, QObject, Signal, QPointF
+from PySide6.QtGui import QColor, QVector3D, QVector4D, QFont
+from PySide6.QtWidgets import QWidget, QFrame, QLabel, QVBoxLayout
 
 import pyqtgraph as pg
 import pyqtgraph.opengl as gl
@@ -48,6 +48,47 @@ def _q4_triangles(idx4: list[int]) -> np.ndarray:
     """Convierte un quad (4 indices) en 2 triangulos para GLMeshItem."""
     a, b, c, d = idx4
     return np.array([[a, b, c], [a, c, d]], dtype=np.int32)
+
+
+class _InfoPopup(QFrame):
+    """Panel flotante con la informacion del objeto clickeado en la vista 3D.
+
+    Para que sirve: al hacer clic sobre un nodo o sobre el area de un
+    elemento, este panel aparece junto al cursor con los datos del objeto
+    (coordenadas, apoyos, cargas, material, esfuerzos...). Se cierra solo
+    al hacer clic en otro lado, orbitar la camara o hacer zoom.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        # Los clics lo atraviesan: es el canvas quien decide cuando cerrarlo
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setStyleSheet(
+            "QFrame { background: rgba(255, 255, 255, 243);"
+            " border: 1px solid #8E99A5; border-radius: 6px; }"
+            "QLabel { border: none; background: transparent;"
+            " color: #22262B; font-size: 9pt; }"
+        )
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(10, 8, 10, 8)
+        self._label = QLabel("")
+        self._label.setTextFormat(Qt.TextFormat.RichText)
+        lay.addWidget(self._label)
+        self.hide()
+
+    def show_at(self, pos: QPointF, html: str) -> None:
+        """Muestra el panel junto al cursor, sin salirse del canvas."""
+        self._label.setText(html)
+        self.adjustSize()
+        x, y = pos.x() + 14, pos.y() + 14
+        parent = self.parentWidget()
+        if parent is not None:
+            x = min(x, max(0, parent.width() - self.width() - 4))
+            y = min(y, max(0, parent.height() - self.height() - 4))
+        self.move(int(x), int(y))
+        self.show()
+        self.raise_()
 
 
 class Canvas3DQ4(gl.GLViewWidget):
@@ -97,15 +138,23 @@ class Canvas3DQ4(gl.GLViewWidget):
         self._stress_vmin: float = 0.0
         self._stress_vmax: float = 1.0
 
+        # Picking: panel de informacion junto al cursor + posicion del
+        # clic inicial (para distinguir CLIC de ARRASTRE de camara)
+        self._popup = _InfoPopup(self)
+        self._press_pos: Optional[QPointF] = None
+
         self._add_axes(length=1.0)
         self._add_grid()
 
     # ------------------------------------------------------------------ ejes + grilla
     def _add_axes(self, length: float = 1.0) -> None:
-        for end, color, lbl in [
-            ((length, 0, 0), (0.90, 0.18, 0.18, 1), "X"),
-            ((0, length, 0), (0.18, 0.70, 0.18, 1), "Y"),
-            ((0, 0, length * 0.5), (0.18, 0.32, 0.92, 1), "Z"),
+        """Dibuja los 3 ejes con su ETIQUETA (X roja, Y verde, Z azul)."""
+        font = QFont("Arial", 11)
+        font.setBold(True)
+        for end, color, rgba_lbl, lbl in [
+            ((length, 0, 0), (0.90, 0.18, 0.18, 1), (230, 46, 46, 255), "X"),
+            ((0, length, 0), (0.18, 0.70, 0.18, 1), (40, 165, 40, 255), "Y"),
+            ((0, 0, length * 0.5), (0.18, 0.32, 0.92, 1), (46, 82, 235, 255), "Z"),
         ]:
             ln = gl.GLLinePlotItem(
                 pos=np.array([[0, 0, 0], list(end)], dtype=np.float64),
@@ -114,6 +163,14 @@ class Canvas3DQ4(gl.GLViewWidget):
             ln.setGLOptions("opaque")
             self.addItem(ln)
             self._static_items.append(ln)
+            # Etiqueta del eje un poco mas alla de la punta, en su color
+            try:
+                tip = (end[0] * 1.10, end[1] * 1.10, end[2] * 1.16 + (0.04 if lbl == "Z" else 0))
+                t = gl.GLTextItem(pos=tip, text=lbl, color=rgba_lbl, font=font)
+                self.addItem(t)
+                self._static_items.append(t)
+            except Exception:
+                pass   # GLTextItem no disponible en pyqtgraph muy antiguos
 
     def _add_grid(self) -> None:
         grid = gl.GLGridItem()
@@ -175,6 +232,171 @@ class Canvas3DQ4(gl.GLViewWidget):
         self.opts["center"] = QVector3D(*center)
         self.setCameraPosition(distance=max(size * 2.0, 1.5), elevation=28, azimuth=35)
         self.update()
+
+    # ------------------------------------------------------------------ picking
+    # Al hacer CLIC sobre un nodo o sobre el area de un elemento se muestra
+    # un panel flotante con su informacion junto al cursor. Un ARRASTRE
+    # (orbitar la camara) no dispara el panel: se distingue midiendo cuanto
+    # se movio el mouse entre presionar y soltar.
+    def mousePressEvent(self, ev) -> None:
+        self._popup.hide()
+        self._press_pos = ev.position()
+        super().mousePressEvent(ev)
+
+    def mouseReleaseEvent(self, ev) -> None:
+        super().mouseReleaseEvent(ev)
+        if self._press_pos is None:
+            return
+        moved = (ev.position() - self._press_pos).manhattanLength()
+        self._press_pos = None
+        if ev.button() == Qt.MouseButton.LeftButton and moved < 6.0:
+            self._pick(ev.position())
+
+    def wheelEvent(self, ev) -> None:
+        # El zoom mueve la escena: el panel quedaria "flotando" en un lugar
+        # que ya no corresponde, mejor cerrarlo.
+        self._popup.hide()
+        super().wheelEvent(ev)
+
+    def _project_point(self, x: float, y: float, z: float):
+        """Proyecta un punto 3D del modelo a pixeles del widget.
+
+        Usa las mismas matrices de camara del render (proyeccion y vista):
+        punto 3D -> coordenadas normalizadas (NDC) -> pixeles. Devuelve
+        (px, py) o None si el punto queda detras de la camara.
+        """
+        # La firma de projectionMatrix cambia entre versiones de pyqtgraph:
+        # 0.14+ exige (region, viewport); versiones previas no llevan args.
+        try:
+            vp = self.getViewport()
+            proj = self.projectionMatrix(vp, vp)
+        except (TypeError, AttributeError):
+            proj = self.projectionMatrix()
+        m = proj * self.viewMatrix()
+        v = m.map(QVector4D(x, y, z, 1.0))
+        w = v.w()
+        if abs(w) < 1e-12:
+            return None
+        ndc_x, ndc_y, ndc_z = v.x() / w, v.y() / w, v.z() / w
+        if not (-1.0 <= ndc_z <= 1.0):
+            return None
+        px = (ndc_x + 1.0) * 0.5 * self.width()
+        py = (1.0 - ndc_y) * 0.5 * self.height()
+        return px, py
+
+    @staticmethod
+    def _point_in_polygon(px: float, py: float,
+                          poly: list[tuple[float, float]]) -> bool:
+        """Test par-impar: True si (px, py) cae dentro del poligono 2D."""
+        inside = False
+        n = len(poly)
+        j = n - 1
+        for i in range(n):
+            xi, yi = poly[i]
+            xj, yj = poly[j]
+            if (yi > py) != (yj > py):
+                x_cross = xi + (py - yi) * (xj - xi) / (yj - yi)
+                if px < x_cross:
+                    inside = not inside
+            j = i
+        return inside
+
+    def _pick(self, pos: QPointF) -> None:
+        """Determina que objeto esta bajo el cursor y muestra su informacion.
+
+        Prioridad: primero nodos (radio de 14 px alrededor del clic),
+        despues el area de los elementos (poligono proyectado en pantalla).
+        """
+        s = self._structure
+        if s is None or not s.nodes:
+            return
+        px, py = pos.x(), pos.y()
+
+        # 1) Nodos: el mas cercano al clic dentro del radio de tolerancia
+        best_node, best_d = None, 14.0
+        for n in s.nodes:
+            pr = self._project_point(n.x, n.y, 0.0)
+            if pr is None:
+                continue
+            d = ((pr[0] - px) ** 2 + (pr[1] - py) ** 2) ** 0.5
+            if d < best_d:
+                best_d, best_node = d, n
+        if best_node is not None:
+            self._popup.show_at(pos, self._node_html(best_node))
+            return
+
+        # 2) Elementos: el clic cae dentro del contorno proyectado
+        for idx, el in enumerate(s.elements):
+            poly = []
+            visible = True
+            for n in el.nodes:
+                pr = self._project_point(n.x, n.y, 0.0)
+                if pr is None:
+                    visible = False
+                    break
+                poly.append(pr)
+            if visible and self._point_in_polygon(px, py, poly):
+                self._popup.show_at(pos, self._element_html(el, idx))
+                return
+
+    @staticmethod
+    def _fmt(v: float) -> str:
+        """Formato de numeros para el panel: 15 digitos, ceros residuales -> 0."""
+        if abs(v) < 1e-13:
+            return "0"
+        return f"{v:.15g}"
+
+    def _node_html(self, n) -> str:
+        """Arma la ficha HTML de un nodo: posicion, apoyo, cargas y u."""
+        filas = [
+            f"<b>Nodo N{n.id + 1}</b>",
+            f"x = {self._fmt(n.x)} m &nbsp;&nbsp; y = {self._fmt(n.y)} m",
+        ]
+        restr = []
+        if n.restraint_x:
+            restr.append("X")
+        if n.restraint_y:
+            restr.append("Y")
+        filas.append("Apoyo: " + (", ".join(restr) if restr else "libre"))
+        if n.load_x != 0.0 or n.load_y != 0.0:
+            filas.append(
+                f"Carga: Fx = {self._fmt(n.load_x)} N, "
+                f"Fy = {self._fmt(n.load_y)} N"
+            )
+        if self._displacements is not None and 2 * n.id + 1 < len(self._displacements):
+            ux = float(self._displacements[2 * n.id])
+            uy = float(self._displacements[2 * n.id + 1])
+            filas.append(f"ux = {self._fmt(ux)} m")
+            filas.append(f"uy = {self._fmt(uy)} m")
+        return "<br/>".join(filas)
+
+    def _element_html(self, el, idx: int) -> str:
+        """Arma la ficha HTML de un elemento: nodos, area, material y esfuerzo."""
+        node_names = ", ".join(f"N{n.id + 1}" for n in el.nodes)
+        # Area del cuadrilatero por la formula del lazo (shoelace)
+        xs = [n.x for n in el.nodes]
+        ys = [n.y for n in el.nodes]
+        area = 0.0
+        for i in range(4):
+            j = (i + 1) % 4
+            area += xs[i] * ys[j] - xs[j] * ys[i]
+        area = abs(area) / 2.0
+        hipotesis = "tensión plana" if el.plane_stress else "deformación plana"
+        filas = [
+            f"<b>Elemento E{el.id + 1}</b>",
+            f"Nodos: {node_names}",
+            f"Área = {self._fmt(area)} m²",
+            f"E = {self._fmt(el.E)} Pa &nbsp; ν = {self._fmt(el.nu)}",
+            f"t = {self._fmt(el.t)} m &nbsp; ({hipotesis})",
+        ]
+        if (self._stress_field_name is not None
+                and self._stress_per_element is not None
+                and idx < len(self._stress_per_element)):
+            filas.append(
+                f"{self._stress_field_name} (promedio) = "
+                f"{self._fmt(float(self._stress_per_element[idx]))} Pa"
+            )
+        return "<br/>".join(filas)
 
     # ------------------------------------------------------------------ helpers internos
     def _node_array(self, with_def: bool = False) -> np.ndarray:
