@@ -83,7 +83,7 @@ def main():
 
     print("=" * 80)
     print("  VERIFICACION FINAL: Excel PLANE.xlsx  vs  Programa MEF Q4 (Python)")
-    print("  (Convención de nodos: ++, -+, --, +-)")
+    print("  (Convención de nodos del programa: --, +-, ++, -+ — la de la guía)")
     print("=" * 80)
 
     # ===== 1. Datos de entrada =====
@@ -136,8 +136,8 @@ def main():
     # σ en N1: encontrado en C159, C160 = 1858.585859 (σx y σy)
     sig_n1x_excel = float(ws['C159'].value)
     sig_n1y_excel = float(ws['C160'].value)
-    show("σx en N1(++)", result.elements[0].stresses_at_corners[0][0], sig_n1x_excel)
-    show("σy en N1(++)", result.elements[0].stresses_at_corners[0][1], sig_n1y_excel)
+    show("σx en N1 (0.5, 0.5)", result.elements[0].stresses_at_corners[0][0], sig_n1x_excel)
+    show("σy en N1 (0.5, 0.5)", result.elements[0].stresses_at_corners[0][1], sig_n1y_excel)
 
     # Imprimir todos los σ encontrados para inspección
     print("\n    Buscando σ en {1858, 1616, 242, 1373, 686} en Excel ...")

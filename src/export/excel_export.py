@@ -218,7 +218,7 @@ def export_to_excel_organized(procedure: Procedure, path: Path) -> None:
             cell.font = HEADER_FONT
             cell.fill = HEADER_FILL
             cell.border = BORDER
-        labels = ["N1 (++)", "N2 (-+)", "N3 (--)", "N4 (+-)"]
+        labels = ["N1 (--)", "N2 (+-)", "N3 (++)", "N4 (-+)"]
         r = 4
         for el_idx, el_res in enumerate(result.elements, start=1):
             for k, (eps, sig) in enumerate(

@@ -179,9 +179,9 @@ def build_procedure(structure: Structure) -> Procedure:
                 "desplazamiento) dentro del elemento: f(ξ,η) = Σ Ni(ξ,η) · fi.\n"
                 "\n"
                 "El diagrama muestra el cuadrado patrón en (ξ, η) ∈ [-1, 1] con "
-                "la convención de numeración: N₁ en (+,+), N₂ en (-,+), N₃ en "
-                "(-,-), N₄ en (+,-), recorriendo CCW desde la esquina superior "
-                "derecha."
+                "la convención de numeración de la guía: N₁ en (-,-), N₂ en "
+                "(+,-), N₃ en (+,+), N₄ en (-,+), recorriendo CCW desde la "
+                "esquina inferior izquierda."
             ),
             experto=(
                 "Funciones de forma bilineales:  Ni = ¼(1+ξ·ξi)(1+η·ηi)"
@@ -309,8 +309,10 @@ def build_procedure(structure: Structure) -> Procedure:
         b = max(ys0) - min(ys0)
         desc_geom = (
             f"\nEste elemento{suffix} es un rectángulo {a:.15g}×{b:.15g} m alineado "
-            f"con los ejes → J = diag(a/2, b/2) = diag({a/2:.15g}, {b/2:.15g}), "
-            f"|J| = a·b/4 = {a*b/4:.15g}, constante en todo el dominio."
+            f"con los ejes → J es diagonal y constante en todo el dominio, con "
+            f"|J11| = a/2 = {a/2:.15g}, |J22| = b/2 = {b/2:.15g} y "
+            f"det J = a·b/4 = {a*b/4:.15g}. (El signo de J11 y J22 depende de "
+            f"qué esquina física ocupa el nodo 1; det J es siempre positivo.)"
         )
     elif _is_parallelogram(el0):
         desc_geom = (
@@ -599,7 +601,7 @@ def build_procedure(structure: Structure) -> Procedure:
     ))
 
     # ============= 14. Esfuerzos en las ESQUINAS (nodos) =============
-    corner_labels = ["N1 (++)", "N2 (-+)", "N3 (--)", "N4 (+-)"]
+    corner_labels = ["N1 (--)", "N2 (+-)", "N3 (++)", "N4 (-+)"]
     rows = []
     corner_matrices: dict[str, np.ndarray] = {}
     for el_res, el in zip(result.elements, structure.elements):

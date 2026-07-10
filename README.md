@@ -34,7 +34,8 @@ Trabajo de tesis de Ingeniería Civil.
 ## Características
 
 - **Elemento Q4 bilineal isoparamétrico**: 4 nodos, 2 GDL por nodo,
-  convención de nodos `N1=(++), N2=(-+), N3=(--), N4=(+-)`.
+  convención de nodos `N1=(--), N2=(+-), N3=(++), N4=(-+)` (CCW desde la
+  esquina inferior izquierda). La matriz B se construye como `B = A·G`.
 - **15 pasos didácticos**: cada etapa muestra la fórmula, la sustitución
   numérica y el resultado en tablas y matrices.
 - **Dos niveles de usuario**: Novato (explicaciones detalladas) y

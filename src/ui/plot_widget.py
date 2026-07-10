@@ -403,8 +403,8 @@ class PlotWidget(QWidget):
         """
         self.figure.clear()
         # Grilla 2x2 de subplots 3D
-        coords = [(+1, +1, "N1 (++)"), (-1, +1, "N2 (-+)"),
-                  (-1, -1, "N3 (--)"), (+1, -1, "N4 (+-)")]
+        coords = [(-1, -1, "N1 (--)"), (+1, -1, "N2 (+-)"),
+                  (+1, +1, "N3 (++)"), (-1, +1, "N4 (-+)")]
         # Malla de evaluacion en [-1,1]^2
         n_grid = 24
         xi = np.linspace(-1, 1, n_grid)
@@ -444,10 +444,10 @@ class PlotWidget(QWidget):
                        edgecolor="#1f77b4", linewidth=2, alpha=0.6)
         ax.add_patch(poly)
         nodes = [
-            (1, 1, "N₁", "(+1, +1)"),
-            (-1, 1, "N₂", "(−1, +1)"),
-            (-1, -1, "N₃", "(−1, −1)"),
-            (1, -1, "N₄", "(+1, −1)"),
+            (-1, -1, "N₁", "(−1, −1)"),
+            (1, -1, "N₂", "(+1, −1)"),
+            (1, 1, "N₃", "(+1, +1)"),
+            (-1, 1, "N₄", "(−1, +1)"),
         ]
         for xi, eta, name, coord in nodes:
             ax.plot(xi, eta, "o", color="black", markersize=10, zorder=5)
@@ -480,7 +480,7 @@ class PlotWidget(QWidget):
         ax.set_xlim(-1.85, 1.85); ax.set_ylim(-1.85, 1.85)
         ax.set_xlabel("ξ"); ax.set_ylabel("η")
         ax.grid(True, alpha=0.3)
-        ax.set_title("Elemento Q4 patrón — convención ++, -+, --, +-")
+        ax.set_title("Elemento Q4 patrón — convención --, +-, ++, -+")
         self.canvas.draw_idle()
 
     def plot_gauss_points_diagram(self, structure: Structure | None = None):
@@ -510,8 +510,8 @@ class PlotWidget(QWidget):
         ax.plot(cx, cy, cz, color="#1f77b4", linewidth=2)
 
         # Nodos N1..N4 como esferas grandes en las esquinas
-        nodes = [(+1, +1, "N1 (++)"), (-1, +1, "N2 (-+)"),
-                 (-1, -1, "N3 (--)"), (+1, -1, "N4 (+-)")]
+        nodes = [(-1, -1, "N1 (--)"), (+1, -1, "N2 (+-)"),
+                 (+1, +1, "N3 (++)"), (-1, +1, "N4 (-+)")]
         for xi, eta, name in nodes:
             ax.scatter([xi], [eta], [0], color="black", s=60, depthshade=False)
             ax.text(xi * 1.15, eta * 1.15, 0.05, name, fontsize=9,
@@ -520,8 +520,8 @@ class PlotWidget(QWidget):
         # 4 puntos de Gauss flotando ligeramente sobre z=0 para que se vean
         g = 1.0 / np.sqrt(3.0)
         z_gp = 0.18  # altura artificial para que destaquen sobre el plano
-        gps = [(+g, +g, "GP1"), (-g, +g, "GP2"),
-               (-g, -g, "GP3"), (+g, -g, "GP4")]
+        gps = [(-g, -g, "GP1"), (+g, -g, "GP2"),
+               (+g, +g, "GP3"), (-g, +g, "GP4")]
         for xi, eta, name in gps:
             # Linea vertical desde z=0 hasta el GP para anclar la posicion real
             ax.plot([xi, xi], [eta, eta], [0, z_gp], color="#d62728",
@@ -560,8 +560,8 @@ class PlotWidget(QWidget):
                        edgecolor="#888", linewidth=1.5, alpha=0.7)
         ax.add_patch(poly)
         # Nodos como referencia
-        for xi, eta, name in [(1, 1, "N₁"), (-1, 1, "N₂"),
-                               (-1, -1, "N₃"), (1, -1, "N₄")]:
+        for xi, eta, name in [(-1, -1, "N₁"), (1, -1, "N₂"),
+                               (1, 1, "N₃"), (-1, 1, "N₄")]:
             ax.plot(xi, eta, "ko", markersize=5, alpha=0.4)
             ax.annotate(name, (xi, eta),
                         textcoords="offset points",
@@ -569,8 +569,8 @@ class PlotWidget(QWidget):
                         fontsize=9, color="#666", alpha=0.7)
         # 4 puntos de Gauss en (±1/√3, ±1/√3)
         g = 1 / np.sqrt(3)
-        gps = [(+g, +g, "GP₁"), (-g, +g, "GP₂"),
-               (-g, -g, "GP₃"), (+g, -g, "GP₄")]
+        gps = [(-g, -g, "GP₁"), (+g, -g, "GP₂"),
+               (+g, +g, "GP₃"), (-g, +g, "GP₄")]
         for xi, eta, name in gps:
             ax.plot(xi, eta, "*", color="#d62728", markersize=22, zorder=6)
             ax.annotate(

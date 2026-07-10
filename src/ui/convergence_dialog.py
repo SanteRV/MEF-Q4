@@ -43,10 +43,10 @@ def _generate_rect_mesh(xmin, xmax, ymin, ymax, nx, ny,
     el_id = 0
     for j in range(ny):
         for i in range(nx):
-            n1 = node_at[(i + 1, j + 1)]   # (++)
-            n2 = node_at[(i,     j + 1)]   # (-+)
-            n3 = node_at[(i,     j)]       # (--)
-            n4 = node_at[(i + 1, j)]       # (+-)
+            n1 = node_at[(i,     j)]       # (--)
+            n2 = node_at[(i + 1, j)]       # (+-)
+            n3 = node_at[(i + 1, j + 1)]   # (++)
+            n4 = node_at[(i,     j + 1)]   # (-+)
             s.add_element(Q4Element(
                 id=el_id, nodes=[n1, n2, n3, n4],
                 E=E, nu=nu, t=t, plane_stress=plane_stress,

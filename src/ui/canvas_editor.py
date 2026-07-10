@@ -634,7 +634,7 @@ class CanvasEditor(QWidget):
         return {
             Mode.SELECT: "Click en un nodo/elemento para seleccionar. Ctrl+arrastrar = multi-selección.",
             Mode.ADD_NODE: f"Click para crear nodo (snap={self.grid_size if self.snap_enabled else 'OFF'})",
-            Mode.ADD_Q4: "Click 4 nodos en orden CCW desde esquina sup-der (++,-+,--,+-). Esc cancela.",
+            Mode.ADD_Q4: "Click 4 nodos en orden CCW desde esquina inf-izq (--,+-,++,-+). Esc cancela.",
             Mode.ADD_RECT: "Click esquina 1, después click esquina 2: crea nodos + elemento. Esc cancela.",
             Mode.APPLY_BC: "Click en un nodo para asignar apoyos. Si hay multi-selección, aplica al grupo.",
             Mode.APPLY_LOAD: "Click en un nodo para asignar cargas. Si hay multi-selección, aplica al grupo.",
@@ -932,8 +932,9 @@ class CanvasEditor(QWidget):
                            x1: float, y1: float) -> None:
         """Crea 4 nodos + 1 elemento Q4 a partir de 2 esquinas opuestas.
 
-        Convención de nodos del Q4 (CCW desde sup-der): ++, -+, --, +-.
-        Se calcula correctamente independiente del orden de click del usuario.
+        Convención de nodos del Q4 (la de la guía, CCW desde inf-izq):
+        --, +-, ++, -+. Se calcula correctamente independiente del orden
+        de click del usuario.
         """
         self._push_undo()
         # Normalizar: xmin, xmax, ymin, ymax
@@ -941,10 +942,10 @@ class CanvasEditor(QWidget):
         ymin, ymax = min(y0, y1), max(y0, y1)
         # Crear 4 nodos en orden de la convención
         positions = [
-            (xmax, ymax),  # N1  (++)
-            (xmin, ymax),  # N2  (-+)
-            (xmin, ymin),  # N3  (--)
-            (xmax, ymin),  # N4  (+-)
+            (xmin, ymin),  # N1  (--)
+            (xmax, ymin),  # N2  (+-)
+            (xmax, ymax),  # N3  (++)
+            (xmin, ymax),  # N4  (-+)
         ]
         new_nodes = []
         for px, py in positions:
@@ -994,8 +995,8 @@ class CanvasEditor(QWidget):
                 QMessageBox.warning(
                     self, "Orden de nodos incorrecto",
                     "El Jacobiano del elemento es ≤ 0.  Los 4 nodos deben "
-                    "ingresarse en orden CCW desde la esquina superior derecha "
-                    "(convención ++, -+, --, +-)."
+                    "ingresarse en orden CCW (antihorario), por ejemplo desde "
+                    "la esquina inferior izquierda (convención --, +-, ++, -+)."
                 )
                 self._pending_q4_nodes = []
                 self.redraw()
@@ -1143,10 +1144,10 @@ class CanvasEditor(QWidget):
         eid = 0
         for j in range(ny):
             for i in range(nx):
-                n1 = node_at[(i + 1, j + 1)]   # (++)
-                n2 = node_at[(i,     j + 1)]   # (-+)
-                n3 = node_at[(i,     j)]       # (--)
-                n4 = node_at[(i + 1, j)]       # (+-)
+                n1 = node_at[(i,     j)]       # (--)
+                n2 = node_at[(i + 1, j)]       # (+-)
+                n3 = node_at[(i + 1, j + 1)]   # (++)
+                n4 = node_at[(i,     j + 1)]   # (-+)
                 el = Q4Element(
                     id=eid, nodes=[n1, n2, n3, n4],
                     E=self.default_E, nu=self.default_nu,

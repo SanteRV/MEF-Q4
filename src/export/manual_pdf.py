@@ -43,9 +43,9 @@ def _fig_natural_q4_element() -> Path:
                    closed=True, facecolor="#cfe2f3",
                    edgecolor="#1f77b4", linewidth=2)
     ax.add_patch(poly)
-    # Nodos numerados (convención ++,-+,--,+-)
-    nodes = [(1, 1, "N₁ (+,+)"), (-1, 1, "N₂ (-,+)"),
-             (-1, -1, "N₃ (-,-)"), (1, -1, "N₄ (+,-)")]
+    # Nodos numerados (convención de la guía: --, +-, ++, -+)
+    nodes = [(-1, -1, "N₁ (-,-)"), (1, -1, "N₂ (+,-)"),
+             (1, 1, "N₃ (+,+)"), (-1, 1, "N₄ (-,+)")]
     for x, y, lbl in nodes:
         ax.plot(x, y, "o", color="black", markersize=10)
         ax.annotate(lbl, (x, y), textcoords="offset points",
@@ -205,9 +205,9 @@ def export_manual(path: Path) -> None:
     story.append(Image(str(img_natural), width=11*cm, height=10*cm))
     story.append(Paragraph(
         "<i>Figura 1: Elemento Q4 en coordenadas naturales con la convención "
-        "de numeración de nodos usada en este aplicativo: N₁ en (+,+), "
-        "N₂ en (−,+), N₃ en (−,−), N₄ en (+,−), recorriendo en sentido "
-        "antihorario desde la esquina superior derecha.</i>", Body))
+        "de numeración de nodos de la guía: N₁ en (−,−), "
+        "N₂ en (+,−), N₃ en (+,+), N₄ en (−,+), recorriendo en sentido "
+        "antihorario desde la esquina inferior izquierda.</i>", Body))
     story.append(Spacer(1, 0.4*cm))
 
     img_map = _fig_mapping()
@@ -231,13 +231,14 @@ def export_manual(path: Path) -> None:
     story.append(Paragraph(
         "Nᵢ(ξ, η) = ¼ · (1 + ξ·ξᵢ)(1 + η·ηᵢ)", Math))
     story.append(Paragraph(
-        "Expandiendo para cada nodo con la convención (++, −+, −−, +−):", Body))
+        "Expandiendo para cada nodo con la convención de la guía "
+        "(−−, +−, ++, −+):", Body))
     data_N = [
         ["Nodo", "(ξᵢ, ηᵢ)", "Función de forma"],
-        ["N₁", "(+1, +1)", "¼ · (1 + ξ)(1 + η)"],
-        ["N₂", "(−1, +1)", "¼ · (1 − ξ)(1 + η)"],
-        ["N₃", "(−1, −1)", "¼ · (1 − ξ)(1 − η)"],
-        ["N₄", "(+1, −1)", "¼ · (1 + ξ)(1 − η)"],
+        ["N₁", "(−1, −1)", "¼ · (1 − ξ)(1 − η)"],
+        ["N₂", "(+1, −1)", "¼ · (1 + ξ)(1 − η)"],
+        ["N₃", "(+1, +1)", "¼ · (1 + ξ)(1 + η)"],
+        ["N₄", "(−1, +1)", "¼ · (1 − ξ)(1 + η)"],
     ]
     tbl = Table(data_N, hAlign="LEFT")
     tbl.setStyle(TableStyle([

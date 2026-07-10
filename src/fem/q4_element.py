@@ -1,7 +1,8 @@
 """Elemento cuadrilátero bilineal Q4 (tensión plana / deformación plana).
 
-Implementación fiel al desarrollo del documento guía de la tesis
-("PARA LA MATRIZ B Y DE RIGIDEZ"), en su mismo orden:
+Este módulo es el NÚCLEO del método: aquí se construye todo lo que el
+documento guía de la tesis desarrolla para "LA MATRIZ B Y DE RIGIDEZ",
+en su mismo orden y con sus mismas fórmulas:
 
     K^e = t · ∫∫ Bᵀ·D·B · det J · dξ · dη          (integración 2×2 de Gauss)
 
@@ -13,21 +14,21 @@ Implementación fiel al desarrollo del documento guía de la tesis
     5. Matriz G (4×8), derivadas de N respecto a ξ y η             (ec. 38)
     6. Matriz strain-displacement  B = A·G  (3×8)                  (ec. 39)
 
-Convención de nodos (CCW desde la esquina superior derecha):
-    2 --- 1
-    |     |
-    3 --- 4
+Convención de nodos (la de la guía: CCW desde la esquina inferior izquierda):
 
-Coordenadas naturales (ξ, η) ∈ [-1, 1]:
-    N1 = (+,+),  N2 = (-,+),  N3 = (-,-),  N4 = (+,-)
+        η
+    4 --- 3          N1 = (-1, -1)   inferior izquierda
+    |     | → ξ      N2 = (+1, -1)   inferior derecha
+    1 --- 2          N3 = (+1, +1)   superior derecha
+                     N4 = (-1, +1)   superior izquierda
 
-Funciones de forma: Ni = 1/4 (1 + ξ·ξi) (1 + η·ηi)
+Funciones de forma bilineales:  Ni = 1/4 (1 + ξ·ξi) (1 + η·ηi)
+    N1 = 1/4 (1-ξ)(1-η)      N2 = 1/4 (1+ξ)(1-η)
+    N3 = 1/4 (1+ξ)(1+η)      N4 = 1/4 (1-ξ)(1+η)
 
-NOTA sobre la numeración: la guía escribe sus fórmulas numerando los nodos
-desde la esquina (-1,-1). Este programa (y su Excel de validación PLANE.xlsx)
-numera desde (+1,+1). Ambas numeraciones son CCW y físicamente equivalentes;
-las expresiones de J y G conservan aquí la ESTRUCTURA y el ORDEN de la guía,
-con los signos que corresponden a la numeración del programa.
+Cada Ni vale 1 en su propio nodo y 0 en los otros tres (partición de la
+unidad). Con ellas se interpola tanto la geometría como los desplazamientos
+(planteamiento isoparamétrico, ec. 18 de la guía).
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -35,32 +36,41 @@ import numpy as np
 from .node import Node
 
 
-# Coordenadas naturales de los nodos del Q4 (orden 1,2,3,4)
+# ---------- Coordenadas naturales de los nodos (convención de la guía) ----------
+# Fila i = (ξi, ηi) del nodo i+1. Este arreglo define la convención de TODO
+# el programa: el orden de las funciones de forma, de las columnas de B y
+# del ensamblaje de K^e depende de esta numeración.
 NATURAL_COORDS = np.array([
-    [+1.0, +1.0],   # nodo 1  (++)
-    [-1.0, +1.0],   # nodo 2  (-+)
-    [-1.0, -1.0],   # nodo 3  (--)
-    [+1.0, -1.0],   # nodo 4  (+-)
+    [-1.0, -1.0],   # nodo 1  (--)  inferior izquierda
+    [+1.0, -1.0],   # nodo 2  (+-)  inferior derecha
+    [+1.0, +1.0],   # nodo 3  (++)  superior derecha
+    [-1.0, +1.0],   # nodo 4  (-+)  superior izquierda
 ])
 
-# Puntos de Gauss 2x2 y pesos (mismo orden que los nodos: ++,-+,--,+-)
+# ---------- Puntos de Gauss 2×2 ----------
+# Cuadratura de Gauss-Legendre con 2 puntos por dirección: los puntos están
+# en (±1/√3, ±1/√3) y todos los pesos valen 1. Esta regla integra exacto
+# polinomios de grado ≤ 3, suficiente para el integrando Bᵀ·D·B del Q4.
+# El orden de los GP sigue el de los nodos (--, +-, ++, -+): así el GP i
+# queda en el cuadrante del nodo i, lo que facilita la lectura didáctica.
 _G = 1.0 / np.sqrt(3.0)
 GAUSS_2X2 = [
-    (+_G, +_G, 1.0),   # GP1  (++)
-    (-_G, +_G, 1.0),   # GP2  (-+)
-    (-_G, -_G, 1.0),   # GP3  (--)
-    (+_G, -_G, 1.0),   # GP4  (+-)
+    (-_G, -_G, 1.0),   # GP1  (--)  cuadrante del nodo 1
+    (+_G, -_G, 1.0),   # GP2  (+-)  cuadrante del nodo 2
+    (+_G, +_G, 1.0),   # GP3  (++)  cuadrante del nodo 3
+    (-_G, +_G, 1.0),   # GP4  (-+)  cuadrante del nodo 4
 ]
 
 
 def shape_functions(xi: float, eta: float) -> np.ndarray:
-    """Vector [N1, N2, N3, N4] en el punto (ξ, η).
+    """Evalúa las 4 funciones de forma en el punto natural (ξ, η).
 
-    Interpolación isoparamétrica (ec. 18 de la guía):
-        u = N1·q1 + N2·q3 + N3·q5 + N4·q7
-        v = N1·q2 + N2·q4 + N3·q6 + N4·q8
-        x = N1·x1 + N2·x2 + N3·x3 + N4·x4
-        y = N1·y1 + N2·y2 + N3·y3 + N4·y4
+    Para qué sirve: son los "pesos" con que cada nodo aporta al valor
+    interpolado en el interior del elemento. Se usan para interpolar la
+    geometría (x = Σ Ni·xi, y = Σ Ni·yi) y los desplazamientos
+    (u = Σ Ni·ui, v = Σ Ni·vi) — ec. 18 de la guía (isoparametría).
+
+    Devuelve el vector [N1, N2, N3, N4], donde Ni = 1/4(1 + ξ·ξi)(1 + η·ηi).
     """
     N = np.zeros(4)
     for i in range(4):
@@ -70,9 +80,17 @@ def shape_functions(xi: float, eta: float) -> np.ndarray:
 
 
 def shape_function_derivatives(xi: float, eta: float) -> np.ndarray:
-    """Devuelve dN/dξ y dN/dη en una matriz 2x4 (filas: ξ, η).
+    """Derivadas de las funciones de forma respecto a ξ y η.
 
-    Son las mismas derivadas que la guía agrupa en la matriz G (ec. 38).
+    Para qué sirve: estas derivadas alimentan dos cosas —
+      1. el Jacobiano J (ec. 31), que mide cómo se deforma el mapeo
+         natural → físico, y
+      2. la matriz G (ec. 38), que expresa las derivadas naturales de
+         u y v en función de los desplazamientos nodales.
+
+    Devuelve una matriz 2×4: fila 0 = ∂Ni/∂ξ, fila 1 = ∂Ni/∂η.
+        ∂Ni/∂ξ = 1/4 · ξi · (1 + η·ηi)
+        ∂Ni/∂η = 1/4 · ηi · (1 + ξ·ξi)
     """
     dN = np.zeros((2, 4))
     for i in range(4):
@@ -83,10 +101,15 @@ def shape_function_derivatives(xi: float, eta: float) -> np.ndarray:
 
 
 def constitutive_matrix(E: float, nu: float, plane_stress: bool = True) -> np.ndarray:
-    """Matriz constitutiva D (3x3) para problema plano.
+    """Matriz constitutiva D (3×3) del material para problema plano.
 
-    Tensión plana:    D = E/(1-ν²) · [[1, ν, 0], [ν, 1, 0], [0, 0, (1-ν)/2]]
-    Deformación pl.:  D = E/((1+ν)(1-2ν)) · [[1-ν, ν, 0], [ν, 1-ν, 0], [0, 0, (1-2ν)/2]]
+    Para qué sirve: relaciona deformaciones con esfuerzos según la ley de
+    Hooke, σ = D·ε. Es el "material" dentro de K^e = t·∫∫ Bᵀ·D·B·det J·dξdη.
+
+    Tensión plana (σz = 0, placas delgadas):
+        D = E/(1-ν²) · [[1, ν, 0], [ν, 1, 0], [0, 0, (1-ν)/2]]
+    Deformación plana (εz = 0, sólidos largos):
+        D = E/((1+ν)(1-2ν)) · [[1-ν, ν, 0], [ν, 1-ν, 0], [0, 0, (1-2ν)/2]]
     """
     if plane_stress:
         c = E / (1.0 - nu * nu)
@@ -106,30 +129,40 @@ def constitutive_matrix(E: float, nu: float, plane_stress: bool = True) -> np.nd
 
 @dataclass
 class Q4GaussData:
-    """Información calculada en un punto de Gauss (para mostrar paso a paso)."""
-    xi: float
-    eta: float
-    weight: float
-    N: np.ndarray            # (4,)   funciones de forma
-    dN_natural: np.ndarray   # (2,4)  dN/dξ, dN/dη
+    """Resultados intermedios calculados en UN punto de Gauss.
+
+    Para qué sirve: el aplicativo es didáctico, por eso no basta con K^e —
+    se guarda cada pieza del cálculo (J, A, G, B...) para poder mostrarla
+    en el paso a paso, exportarla a Excel y al PDF del reporte.
+    """
+    xi: float                # coordenada ξ del punto de Gauss
+    eta: float               # coordenada η del punto de Gauss
+    weight: float            # peso w de la cuadratura (= 1 en la regla 2×2)
+    N: np.ndarray            # (4,)   funciones de forma evaluadas en el GP
+    dN_natural: np.ndarray   # (2,4)  ∂N/∂ξ y ∂N/∂η en el GP
     J: np.ndarray            # (2,2)  Jacobiano (ec. 31)
-    detJ: float
+    detJ: float              # determinante de J (cambio de área, ec. 33)
     A: np.ndarray            # (3,4)  matriz A (ec. 37)
     G: np.ndarray            # (4,8)  matriz G (ec. 38)
-    dN_xy: np.ndarray        # (2,4)  dN/dx, dN/dy (via inversa explícita, ec. 32)
+    dN_xy: np.ndarray        # (2,4)  ∂N/∂x y ∂N/∂y (vía inversa explícita, ec. 32)
     B: np.ndarray            # (3,8)  strain-displacement B = A·G (ec. 39)
 
 
 @dataclass
 class Q4Element:
-    """Elemento Q4: 4 nodos, 2 GDL por nodo (8 GDL total)."""
+    """Elemento finito Q4: 4 nodos, 2 GDL por nodo (8 GDL en total).
+
+    Para qué sirve: representa UNA pieza de la malla. Sabe calcular su
+    propia matriz de rigidez K^e (8×8) y sus esfuerzos/deformaciones a
+    partir de los desplazamientos que el solver le devuelve.
+    """
 
     id: int
-    nodes: list[Node]        # 4 nodos en orden antihorario
+    nodes: list[Node]        # 4 nodos en orden antihorario (CCW)
     E: float                 # módulo de elasticidad (Pa)
     nu: float                # coeficiente de Poisson
     t: float                 # espesor (m)
-    plane_stress: bool = True
+    plane_stress: bool = True   # True = tensión plana, False = deformación plana
 
     def __post_init__(self) -> None:
         if len(self.nodes) != 4:
@@ -138,11 +171,19 @@ class Q4Element:
     # ---------- propiedades geométricas ----------
     @property
     def coords(self) -> np.ndarray:
-        """Matriz 4x2 con las coordenadas (x,y) de los nodos."""
+        """Matriz 4×2 con las coordenadas físicas (x, y) de los 4 nodos.
+
+        La fila i corresponde al nodo i+1; el nodo i+1 ocupa la esquina
+        natural NATURAL_COORDS[i].
+        """
         return np.array([[n.x, n.y] for n in self.nodes])
 
     def global_dofs(self) -> list[int]:
-        """8 GDL globales: [u1x, u1y, u2x, u2y, u3x, u3y, u4x, u4y]."""
+        """Índices de los 8 GDL del elemento dentro del sistema global.
+
+        Para qué sirve: el ensamblaje. La entrada K^e[a, b] se suma en
+        K_global[dofs[a], dofs[b]]. Orden: [u1x, u1y, u2x, u2y, ..., u4y].
+        """
         dofs = []
         for n in self.nodes:
             dofs.extend(n.dofs)
@@ -150,32 +191,45 @@ class Q4Element:
 
     # ---------- 1. Jacobiano (ec. 30-31 de la guía) ----------
     def jacobian(self, xi: float, eta: float) -> tuple[np.ndarray, float]:
-        """Jacobiano J (2×2) con sus componentes explícitos.
+        """Jacobiano J (2×2) del mapeo natural → físico, con componentes explícitos.
+
+        Para qué sirve: J conecta las derivadas en (ξ, η) con las derivadas
+        en (x, y) (regla de la cadena, ec. 30) y su determinante realiza el
+        cambio de variable de la integral: dx·dy = det J·dξ·dη (ec. 33).
 
             J = | J11  J12 |  =  | ∂x/∂ξ  ∂y/∂ξ |              (ec. 31)
                 | J21  J22 |     | ∂x/∂η  ∂y/∂η |
 
-        Componentes según la ec. 31 de la guía, con la numeración de nodos
-        del programa (N1=++, N2=-+, N3=--, N4=+-):
+        Componentes según la ec. 31 de la guía (transcripción literal):
+            J11 = 1/4·[-(1-η)·x1 + (1-η)·x2 + (1+η)·x3 - (1+η)·x4]
+            J12 = 1/4·[-(1-η)·y1 + (1-η)·y2 + (1+η)·y3 - (1+η)·y4]
+            J21 = 1/4·[-(1-ξ)·x1 - (1+ξ)·x2 + (1+ξ)·x3 + (1-ξ)·x4]
+            J22 = 1/4·[-(1-ξ)·y1 - (1+ξ)·y2 + (1+ξ)·y3 + (1-ξ)·y4]
         """
         (x1, y1), (x2, y2), (x3, y3), (x4, y4) = self.coords
 
-        J11 = 0.25 * (+(1 + eta) * x1 - (1 + eta) * x2 - (1 - eta) * x3 + (1 - eta) * x4)
-        J12 = 0.25 * (+(1 + eta) * y1 - (1 + eta) * y2 - (1 - eta) * y3 + (1 - eta) * y4)
-        J21 = 0.25 * (+(1 + xi) * x1 + (1 - xi) * x2 - (1 - xi) * x3 - (1 + xi) * x4)
-        J22 = 0.25 * (+(1 + xi) * y1 + (1 - xi) * y2 - (1 - xi) * y3 - (1 + xi) * y4)
+        J11 = 0.25 * (-(1 - eta) * x1 + (1 - eta) * x2 + (1 + eta) * x3 - (1 + eta) * x4)
+        J12 = 0.25 * (-(1 - eta) * y1 + (1 - eta) * y2 + (1 + eta) * y3 - (1 + eta) * y4)
+        J21 = 0.25 * (-(1 - xi) * x1 - (1 + xi) * x2 + (1 + xi) * x3 + (1 - xi) * x4)
+        J22 = 0.25 * (-(1 - xi) * y1 - (1 + xi) * y2 + (1 + xi) * y3 + (1 - xi) * y4)
 
         J = np.array([
             [J11, J12],
             [J21, J22],
         ])
+        # Determinante 2×2 en forma explícita (sin np.linalg.det, como la guía)
         detJ = J11 * J22 - J12 * J21
         return J, detJ
 
     # ---------- 4. Matriz A (ec. 37 de la guía) ----------
     @staticmethod
     def A_matrix(J: np.ndarray, detJ: float) -> np.ndarray:
-        """Matriz A (3×4): lleva las derivadas naturales de u y v a ε.
+        """Matriz A (3×4): convierte derivadas naturales de u y v en deformaciones.
+
+        Para qué sirve: las deformaciones físicas ε = [εx, εy, γxy] requieren
+        derivadas respecto a (x, y), pero lo que sabemos derivar fácil es
+        respecto a (ξ, η). A hace esa conversión usando la inversa explícita
+        del Jacobiano (ec. 32) aplicada a u y v (ec. 34 y 35):
 
             ε = [∂u/∂x; ∂v/∂y; ∂u/∂y + ∂v/∂x] = A·[∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η]
 
@@ -194,24 +248,37 @@ class Q4Element:
     # ---------- 5. Matriz G (ec. 38 de la guía) ----------
     @staticmethod
     def G_matrix(xi: float, eta: float) -> np.ndarray:
-        """Matriz G (4×8): derivadas naturales de u y v en términos de q.
+        """Matriz G (4×8): deriva el campo de desplazamientos respecto a ξ y η.
+
+        Para qué sirve: como u = Σ Ni·ui y v = Σ Ni·vi (isoparametría),
+        sus derivadas naturales son combinaciones de las ∂Ni/∂ξ y ∂Ni/∂η.
+        G organiza esos coeficientes para escribirlo en forma matricial:
 
             [∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η] = G·q                   (ec. 38)
 
         con q = [q1..q8] = [u1, v1, u2, v2, u3, v3, u4, v4].
-        Signos según la numeración de nodos del programa
-        (N1=++, N2=-+, N3=--, N4=+-):
+
+        Transcripción literal de la ec. 38 de la guía:
+
+            G = 1/4 · | -(1-η)   0    (1-η)   0    (1+η)   0   -(1+η)   0   |
+                      | -(1-ξ)   0   -(1+ξ)   0    (1+ξ)   0    (1-ξ)   0   |
+                      |   0   -(1-η)   0    (1-η)   0    (1+η)   0   -(1+η) |
+                      |   0   -(1-ξ)   0   -(1+ξ)   0    (1+ξ)   0    (1-ξ) |
         """
         return 0.25 * np.array([
-            [+(1 + eta), 0.0, -(1 + eta), 0.0, -(1 - eta), 0.0, +(1 - eta), 0.0],
-            [+(1 + xi),  0.0, +(1 - xi),  0.0, -(1 - xi),  0.0, -(1 + xi),  0.0],
-            [0.0, +(1 + eta), 0.0, -(1 + eta), 0.0, -(1 - eta), 0.0, +(1 - eta)],
-            [0.0, +(1 + xi),  0.0, +(1 - xi),  0.0, -(1 - xi),  0.0, -(1 + xi)],
+            [-(1 - eta), 0.0, +(1 - eta), 0.0, +(1 + eta), 0.0, -(1 + eta), 0.0],
+            [-(1 - xi),  0.0, -(1 + xi),  0.0, +(1 + xi),  0.0, +(1 - xi),  0.0],
+            [0.0, -(1 - eta), 0.0, +(1 - eta), 0.0, +(1 + eta), 0.0, -(1 + eta)],
+            [0.0, -(1 - xi),  0.0, -(1 + xi),  0.0, +(1 + xi),  0.0, +(1 - xi)],
         ])
 
     # ---------- 6. Matriz B = A·G (ec. 39 de la guía) ----------
     def B_matrix(self, xi: float, eta: float) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
         """Matriz strain-displacement B (3×8) siguiendo la guía: B = A·G.
+
+        Para qué sirve: B es el puente entre desplazamientos nodales y
+        deformaciones (ε = B·q). Es la pieza central de la rigidez
+        K^e = t·∫∫ Bᵀ·D·B·det J·dξ·dη y del post-proceso de esfuerzos.
 
         Devuelve (B, J, detJ, dN_xy). Las derivadas cartesianas dN_xy se
         obtienen con la inversa explícita del Jacobiano (ec. 32):
@@ -219,6 +286,9 @@ class Q4Element:
             [∂Ni/∂x; ∂Ni/∂y] = (1/det J)·[[J22, -J12], [-J21, J11]]·[∂Ni/∂ξ; ∂Ni/∂η]
         """
         J, detJ = self.jacobian(xi, eta)
+        # det J > 0 garantiza que el mapeo natural → físico no está invertido
+        # ni degenerado (área positiva). Si sale ≤ 0, los nodos del elemento
+        # fueron ingresados en orden horario o cruzado.
         if detJ <= 0:
             raise ValueError(
                 f"Jacobiano no positivo (det={detJ}) en (ξ={xi}, η={eta}). "
@@ -242,11 +312,17 @@ class Q4Element:
         return B, J, detJ, dN_xy
 
     def D_matrix(self) -> np.ndarray:
+        """Matriz constitutiva D del elemento (según su material e hipótesis)."""
         return constitutive_matrix(self.E, self.nu, self.plane_stress)
 
     # ---------- integración numérica ----------
     def gauss_data(self) -> list[Q4GaussData]:
-        """Calcula toda la info en los 4 puntos de Gauss (didáctico)."""
+        """Evalúa TODAS las matrices intermedias en los 4 puntos de Gauss.
+
+        Para qué sirve: alimenta el paso a paso didáctico (paso 6 del
+        aplicativo) y los exports. El solver solo necesita B y detJ, pero
+        aquí se conserva cada pieza (N, dN, J, A, G...) para poder mostrarla.
+        """
         data = []
         for xi, eta, w in GAUSS_2X2:
             B, J, detJ, dN_xy = self.B_matrix(xi, eta)
@@ -262,26 +338,36 @@ class Q4Element:
         return data
 
     def stiffness_matrix(self) -> tuple[np.ndarray, list[Q4GaussData]]:
-        """Matriz de rigidez del elemento según la guía:
+        """Matriz de rigidez del elemento según la fórmula de la guía:
 
             K^e = t · ∫∫ Bᵀ·D·B · det J · dξ · dη  ≈  Σᵢ Bᵢᵀ·D·Bᵢ·t·det Jᵢ·wᵢ
 
-        (cuadratura de Gauss 2×2, wᵢ = 1; el cambio de variable
-        dx·dy = det J·dξ·dη es la ec. 33 de la guía).
+        Para qué sirve: K^e relaciona los 8 desplazamientos nodales del
+        elemento con las 8 fuerzas nodales (equilibrio elástico). La
+        integral se evalúa con cuadratura de Gauss 2×2 (wᵢ = 1); el cambio
+        de variable dx·dy = det J·dξ·dη es la ec. 33 de la guía.
 
-        Devuelve la matriz K (8x8) y los datos de cada punto de Gauss.
+        Devuelve la matriz K (8×8, simétrica) y los datos de cada punto
+        de Gauss para el paso a paso.
         """
         D = self.D_matrix()
         K = np.zeros((8, 8))
         gp_data = self.gauss_data()
         for gp in gp_data:
+            # Contribución de este punto de Gauss a la rigidez del elemento
             K += gp.B.T @ D @ gp.B * self.t * gp.detJ * gp.weight
         return K, gp_data
 
     # ---------- post-proceso ----------
     def strains_stresses_at(self, xi: float, eta: float,
                             displacements_8: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """Devuelve (ε, σ) en (ξ, η): ε = B·q (guía) y σ = D·ε."""
+        """Deformaciones y esfuerzos en un punto natural (ξ, η) del elemento.
+
+        Para qué sirve: post-proceso. Una vez que el solver entrega los
+        desplazamientos q del elemento, aquí se recuperan
+            ε = B·q   (deformaciones, guía: ε = A·G·q)
+            σ = D·ε   (esfuerzos, ley de Hooke)
+        """
         B, _, _, _ = self.B_matrix(xi, eta)
         strain = B @ displacements_8
         stress = self.D_matrix() @ strain
@@ -290,7 +376,13 @@ class Q4Element:
     def strains_stresses_at_corners(
         self, displacements_8: np.ndarray
     ) -> list[tuple[np.ndarray, np.ndarray]]:
-        """Devuelve [(ε, σ)] en los 4 nodos (esquinas), en el orden ++, -+, --, +-."""
+        """Deformaciones y esfuerzos evaluados en los 4 nodos (esquinas).
+
+        Para qué sirve: los esfuerzos se calculan de forma natural en los
+        puntos de Gauss (interiores), pero al usuario le interesan también
+        en los nodos. Aquí se evalúa B directamente en cada esquina
+        (ξ, η) = (±1, ±1), en el orden de los nodos: --, +-, ++, -+.
+        """
         return [
             self.strains_stresses_at(xi_i, eta_i, displacements_8)
             for xi_i, eta_i in NATURAL_COORDS
