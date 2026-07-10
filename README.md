@@ -67,34 +67,123 @@ Trabajo de tesis de Ingeniería Civil.
 
 ---
 
-## Instalación y ejecución (desde el código fuente)
+## Instalación paso a paso (se hace UNA sola vez)
+
+### Paso 0 — Requisitos previos
+
+Antes de empezar, verifica que tienes **Python** instalado. Abre PowerShell
+y escribe:
 
 ```powershell
-# 1. Clonar el repositorio
-git clone https://github.com/SanteRV/MEF-Q4.git
-cd MEF-Q4
-
-# 2. Crear y activar el entorno virtual
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-
-# 3. Instalar dependencias
-pip install -r requirements.txt
-
-# 4. Ejecutar el aplicativo
-python -m src.main
+python --version
 ```
 
-> **Nota sobre el punto de entrada.** Usa `python -m src.main` (o
-> `python run.py`). **No** ejecutes `python src/main.py` de forma suelta: falla
-> porque los imports relativos internos necesitan cargarse como parte del
-> paquete `src`.
+- Si responde algo como `Python 3.13.x`, estás listo.
+- Si dice *"python no se reconoce como un comando..."*, descarga Python
+  desde [python.org/downloads](https://www.python.org/downloads/) e
+  instálalo **marcando la casilla "Add python.exe to PATH"** (es la opción
+  más importante del instalador). Luego cierra y vuelve a abrir PowerShell.
 
-> **Nota sobre PyOpenGL en Windows.** Si `pip install -r requirements.txt` falla
-> al compilar `PyOpenGL_accelerate`, tienes tres opciones: (1) instalar
-> *Microsoft C++ Build Tools*; (2) usar una wheel precompilada; o (3) quitar la
-> línea `PyOpenGL_accelerate` de `requirements.txt` — es solo una optimización,
-> `PyOpenGL` a secas basta para la Vista 3D (aunque algo más lenta).
+Para descargar el proyecto necesitas **Git** ([git-scm.com](https://git-scm.com/))
+o, si no quieres instalarlo, puedes bajar el proyecto como ZIP (se explica
+en el paso 1).
+
+### Paso 1 — Descargar el proyecto
+
+**Opción con Git** (recomendada, permite actualizar con `git pull`):
+
+```powershell
+git clone https://github.com/SanteRV/MEF-Q4.git
+cd MEF-Q4
+```
+
+**Opción sin Git**: en la página del repositorio pulsa el botón verde
+`Code` → `Download ZIP`, descomprime el archivo donde quieras y abre
+PowerShell dentro de esa carpeta (en el Explorador de Windows: clic en la
+barra de direcciones, escribe `powershell` y presiona Enter).
+
+### Paso 2 — Crear el entorno virtual
+
+```powershell
+python -m venv venv
+```
+
+**Qué hace**: crea una carpeta `venv/` con una copia privada de Python
+solo para este proyecto. Así las librerías que instalemos no tocan el
+Python del sistema ni interfieren con otros proyectos.
+
+**Qué esperar**: tarda unos segundos y no imprime nada. Al terminar
+aparece la carpeta `venv/` dentro del proyecto.
+
+### Paso 3 — Instalar las dependencias
+
+```powershell
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+**Qué hace**: descarga e instala dentro del `venv` las librerías que el
+aplicativo necesita (PySide6 para la interfaz gráfica, NumPy/SciPy para el
+cálculo matricial, Matplotlib y PyQtGraph para los gráficos, openpyxl y
+ReportLab para exportar a Excel/PDF, entre otras).
+
+**Qué esperar**: tarda entre 2 y 5 minutos según tu internet (descarga
+~500 MB). Verás muchas líneas `Collecting ...` e `Installing ...`. La
+instalación fue exitosa si al final aparece `Successfully installed ...`.
+
+Con esto la instalación terminó. **No hay que repetir estos pasos nunca
+más** (salvo que borres la carpeta `venv/`).
+
+---
+
+## Ejecutar el aplicativo (cada vez que quieras usarlo)
+
+Desde la carpeta del proyecto, cualquiera de estas dos opciones:
+
+```powershell
+# Opción A (la más simple): doble clic en ejecutar.bat, o desde la terminal:
+.\ejecutar.bat
+
+# Opción B: invocar directamente el Python del entorno virtual
+.\venv\Scripts\python.exe -m src.main
+```
+
+**Qué esperar**: la primera vez tarda de 3 a 10 segundos; luego se abre la
+ventana "Aplicativo MEF — Tesis (Elemento Q4)" con un ejemplo ya cargado.
+
+### Por qué `python -m src.main` a secas NO funciona
+
+Es la duda más común. En tu computadora conviven ahora DOS Python:
+
+| Comando | Cuál Python usa | ¿Tiene las librerías? |
+|---|---|---|
+| `python ...` | El del sistema (el que instalaste de python.org) | No — da `ModuleNotFoundError` |
+| `.\venv\Scripts\python.exe ...` | El del entorno virtual del proyecto | Sí — aquí instaló pip en el paso 3 |
+
+El comando "activar" (`.\venv\Scripts\Activate.ps1`) hace que `python` a
+secas apunte temporalmente al del venv, **pero solo en esa ventana de
+terminal**: al cerrarla, la activación se pierde. Por eso, si cierras y
+vuelves a entrar, `python -m src.main` falla de nuevo. Usar
+`ejecutar.bat` (o la ruta completa al python del venv) evita el problema
+de raíz — funciona siempre, sin activar nada.
+
+> Además, en Windows la política de ejecución suele bloquear `Activate.ps1`
+> con el error *"la ejecución de scripts está deshabilitada en este
+> sistema"*. Si aun así prefieres activar el entorno, habilítalo una sola
+> vez con: `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser`
+
+---
+
+## Errores comunes al instalar o ejecutar
+
+| Mensaje o síntoma | Causa | Solución |
+|---|---|---|
+| `python no se reconoce como un comando` | Python no está instalado o no se agregó al PATH | Reinstalar Python marcando "Add python.exe to PATH"; cerrar y reabrir PowerShell |
+| `ModuleNotFoundError: No module named 'PySide6'` | Ejecutaste con el Python del sistema, no el del venv | Usar `.\ejecutar.bat` o `.\venv\Scripts\python.exe -m src.main` |
+| `la ejecución de scripts está deshabilitada en este sistema` | La política de PowerShell bloquea `Activate.ps1` | No hace falta activar; usa `ejecutar.bat`. O habilita scripts: `Set-ExecutionPolicy RemoteSigned -Scope CurrentUser` |
+| `attempted relative import with no known parent package` | Ejecutaste `python src/main.py` directo | Usar `-m src.main` o `run.py` (los imports internos requieren cargarse como paquete) |
+| Falla instalando `PyOpenGL_accelerate` (error de compilación) | Falta el compilador C++ de Microsoft | Borrar la línea `PyOpenGL_accelerate` de `requirements.txt` y reinstalar — es solo una optimización, la Vista 3D funciona sin ella. Alternativa: instalar *Microsoft C++ Build Tools* |
+| La Vista 3D se ve negra | Tarjeta gráfica sin OpenGL 2.0+ o driver antiguo | Actualizar el controlador de video |
+| El antivirus bloquea `ejecutar.bat` o el `.exe` | Falso positivo común con PyInstaller | Permitir la carpeta del proyecto en el antivirus |
 
 ---
 
