@@ -172,40 +172,65 @@ class ConvergenceDialog(QDialog):
             QMessageBox.critical(self, "Error en parámetros", str(e))
             return
 
-        rows = []
-        prev_u_max = None
-        prev_sx_max = None
-        for n in self.refinements:
-            t0 = time.perf_counter()
-            s = _generate_rect_mesh(self.xmin, self.xmax, self.ymin, self.ymax,
-                                    n, n, self.E, self.nu, self.t, self.plane_stress)
-            _apply_boundary_left_right(s, self.xmin, self.xmax,
-                                       self.total_fx, self.total_fy)
-            res = solve(s)
-            dt = time.perf_counter() - t0
-            u_max = float(np.max(np.abs(res.displacements)))
-            sx_vals = [sig[0] for el in res.elements for sig in el.stresses_at_gauss]
-            sx_max = float(max(sx_vals)) if sx_vals else 0.0
-            n_dof = 2 * len(s.nodes)
-            n_el = len(s.elements)
-            rel_err_u = abs(u_max - prev_u_max) / abs(prev_u_max) if prev_u_max else None
-            rel_err_s = abs(sx_max - prev_sx_max) / abs(prev_sx_max) if prev_sx_max else None
-            rows.append({
-                "Malla": f"{n}×{n}",
-                "Elementos": n_el,
-                "GDL": n_dof,
-                "u_max (m)": u_max,
-                "σx_max (Pa)": sx_max,
-                "Δ u rel (vs anterior)": rel_err_u if rel_err_u is not None else float("nan"),
-                "Δ σx rel (vs anterior)": rel_err_s if rel_err_s is not None else float("nan"),
-                "tiempo (s)": dt,
-            })
-            prev_u_max, prev_sx_max = u_max, sx_max
+        # Feedback visual INTUITIVO: dialogo de progreso real (el estudio
+        # tiene pasos medibles — una malla = un paso) + cursor de espera.
+        from PySide6.QtWidgets import QApplication, QProgressDialog
+        from PySide6.QtGui import QCursor
+        from PySide6.QtCore import Qt as _Qt
+        n_mallas = len(self.refinements)
+        progress = QProgressDialog(
+            "Preparando el estudio...", "", 0, n_mallas, self)
+        progress.setWindowTitle("Estudio de convergencia")
+        progress.setWindowModality(_Qt.WindowModality.WindowModal)
+        progress.setCancelButton(None)     # el estudio no se interrumpe a medias
+        progress.setMinimumDuration(0)     # mostrarlo de inmediato
+        progress.setValue(0)
+        QApplication.setOverrideCursor(QCursor(_Qt.CursorShape.WaitCursor))
+        QApplication.processEvents()
 
-        self.df_results = pd.DataFrame(rows)
-        self._update_table()
-        self._update_plot()
-        self.btn_export.setEnabled(True)
+        try:
+            rows = []
+            prev_u_max = None
+            prev_sx_max = None
+            for idx, n in enumerate(self.refinements):
+                progress.setLabelText(
+                    f"Resolviendo malla {idx + 1} de {n_mallas} ({n}×{n})...")
+                QApplication.processEvents()
+                t0 = time.perf_counter()
+                s = _generate_rect_mesh(self.xmin, self.xmax, self.ymin, self.ymax,
+                                        n, n, self.E, self.nu, self.t, self.plane_stress)
+                _apply_boundary_left_right(s, self.xmin, self.xmax,
+                                           self.total_fx, self.total_fy)
+                res = solve(s)
+                dt = time.perf_counter() - t0
+                u_max = float(np.max(np.abs(res.displacements)))
+                sx_vals = [sig[0] for el in res.elements for sig in el.stresses_at_gauss]
+                sx_max = float(max(sx_vals)) if sx_vals else 0.0
+                n_dof = 2 * len(s.nodes)
+                n_el = len(s.elements)
+                rel_err_u = abs(u_max - prev_u_max) / abs(prev_u_max) if prev_u_max else None
+                rel_err_s = abs(sx_max - prev_sx_max) / abs(prev_sx_max) if prev_sx_max else None
+                rows.append({
+                    "Malla": f"{n}×{n}",
+                    "Elementos": n_el,
+                    "GDL": n_dof,
+                    "u_max (m)": u_max,
+                    "σx_max (Pa)": sx_max,
+                    "Δ u rel (vs anterior)": rel_err_u if rel_err_u is not None else float("nan"),
+                    "Δ σx rel (vs anterior)": rel_err_s if rel_err_s is not None else float("nan"),
+                    "tiempo (s)": dt,
+                })
+                prev_u_max, prev_sx_max = u_max, sx_max
+                progress.setValue(idx + 1)   # malla terminada -> avanza la barra
+
+            self.df_results = pd.DataFrame(rows)
+            self._update_table()
+            self._update_plot()
+            self.btn_export.setEnabled(True)
+        finally:
+            # Cerrar el progreso y restaurar el cursor aunque algo falle
+            progress.close()
+            QApplication.restoreOverrideCursor()
 
     def _update_table(self):
         df = self.df_results

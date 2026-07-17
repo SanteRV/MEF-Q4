@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QSplitter, QLabel, QTableView, QFileDialog, QMessageBox,
     QGroupBox, QPlainTextEdit, QScrollArea, QLineEdit, QFormLayout, QComboBox,
     QCheckBox, QGridLayout, QHeaderView, QTabWidget, QFrame, QSlider, QDialog,
+    QApplication,
 )
 from .theme import Colors
 from .icons import (
@@ -1216,11 +1217,25 @@ class MainWindow(QMainWindow):
             return
         if hasattr(self, "nodes_table") and self.nodes_table is not None and not self._apply_input_panel():
             return
+        # Feedback visual mientras el programa calcula: cursor de espera y
+        # mensaje de estado. Al terminar se muestra CUANTO tardo el calculo
+        # (ensamblaje + solucion + generacion de los 15 pasos).
+        import time
+        from PySide6.QtGui import QCursor
+        self.statusBar().showMessage("Calculando...")
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        QApplication.processEvents()   # pinta el mensaje antes de bloquear
+        t0 = time.perf_counter()
         try:
             self.procedure = build_procedure(self.structure)
         except Exception as e:
+            self.statusBar().showMessage("Error en el cálculo")
             QMessageBox.critical(self, "Error en el cálculo", str(e))
             return
+        finally:
+            QApplication.restoreOverrideCursor()
+        dt_calculo = time.perf_counter() - t0
+
         self._populate_steps()
         # Sincronizar editor (sin disparar señales para no loopear)
         if hasattr(self, "canvas_editor"):
@@ -1239,7 +1254,18 @@ class MainWindow(QMainWindow):
             self.canvas_3d.fit_view()
             # Refrescar coloreo de esfuerzos si hay un campo seleccionado
             self._update_3d_stress()
-        self.statusBar().showMessage("Cálculo actualizado")
+        # Tiempo en formato intuitivo: milisegundos si fue rapido,
+        # segundos con 2 decimales si tardo mas.
+        if dt_calculo < 1.0:
+            t_txt = f"{dt_calculo * 1000:.0f} ms"
+        else:
+            t_txt = f"{dt_calculo:.2f} s"
+        n_dof = self.structure.n_dofs
+        n_el = len(self.structure.elements)
+        self.statusBar().showMessage(
+            f"Cálculo completado en {t_txt} — "
+            f"{n_el} elemento{'s' if n_el != 1 else ''}, {n_dof} GDL"
+        )
 
     # ---------------- Vista 3D del Q4 plano ----------------
     def _update_3d_stress(self, field_name: str | None = None):
