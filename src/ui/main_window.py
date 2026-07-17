@@ -476,6 +476,10 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_step_tab(), icon(ICON_TAB_STEPS), "Paso a paso")
         self.tabs.addTab(self._build_editor_tab(), icon(ICON_TAB_EDITOR), "Editor gráfico")
         self.tabs.addTab(self._build_view3d_tab(), icon(ICON_TAB_EDITOR), "Vista 3D")
+        # Modo PLACA (flexión): pestaña autocontenida, familia paralela al Q4
+        from .plate_mode import PlateModeWidget
+        self.plate_mode = PlateModeWidget()
+        self.tabs.addTab(self.plate_mode, icon("fa5s.layer-group"), "Placa (flexión)")
         central_layout.addWidget(self.tabs, 1)
 
         self.setCentralWidget(central)
