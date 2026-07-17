@@ -300,7 +300,7 @@ def export_manual(path: Path) -> None:
         "x(ξ, η) = Σ Nᵢ(ξ, η) · xᵢ,    y(ξ, η) = Σ Nᵢ(ξ, η) · yᵢ", Math))
     story.append(Paragraph(
         "El Jacobiano J es la matriz 2×2 de derivadas parciales, con "
-        "componentes J₁₁, J₁₂, J₂₁, J₂₂ (ec. 31 de la guía):", Body))
+        "componentes J₁₁, J₁₂, J₂₁, J₂₂ (ec. 2.17 de la guía):", Body))
     story.append(Paragraph(
         "J = | J₁₁   J₁₂ | = | ∂x/∂ξ   ∂y/∂ξ |   con   J₁₁ = Σ (∂Nᵢ/∂ξ) · xᵢ,"
         "   J₁₂ = Σ (∂Nᵢ/∂ξ) · yᵢ<br/>"
@@ -325,26 +325,26 @@ def export_manual(path: Path) -> None:
     story.append(Paragraph(
         "Invirtiendo la relación de la regla de la cadena, las derivadas de "
         "cualquier función F respecto a (x, y) se obtienen con la inversa "
-        "explícita del Jacobiano (ec. 32 de la guía):", Body))
+        "explícita del Jacobiano (ec. 2.18 de la guía):", Body))
     story.append(Paragraph(
         "| ∂F/∂x |  =  (1/det J) · |  J₂₂  −J₁₂ | · | ∂F/∂ξ |<br/>"
         "| ∂F/∂y |                 | −J₂₁   J₁₁ |   | ∂F/∂η |", Math))
     story.append(Paragraph(
         "Esta forma explícita es la que se aplica con F = u y F = v "
-        "(ec. 34 y 35) para construir las deformaciones.", Body))
+        "(ec. 2.20 y 2.21) para construir las deformaciones.", Body))
 
     story.append(PageBreak())
 
     # ===== Sección 5: Matriz B =====
     story.append(Paragraph("5. Matriz B (strain-displacement): B = A·G", H2))
     story.append(Paragraph(
-        "Las deformaciones en problema plano (ec. 36 de la guía) son:", Body))
+        "Las deformaciones en problema plano (ec. 2.22 de la guía) son:", Body))
     story.append(Paragraph(
         "ε = [εx, εy, γxy]ᵀ = [∂u/∂x, ∂v/∂y, ∂u/∂y + ∂v/∂x]ᵀ", Math))
     story.append(Paragraph(
         "Aplicando la inversa del Jacobiano (sección 4.1) a u y v, las "
         "deformaciones se expresan en términos de las derivadas naturales "
-        "(ec. 37):", Body))
+        "(ec. 2.23):", Body))
     story.append(Paragraph(
         "ε = A · [∂u/∂ξ, ∂u/∂η, ∂v/∂ξ, ∂v/∂η]ᵀ", Math))
     story.append(Paragraph("donde la matriz A (3 × 4) es:", Body))
@@ -354,7 +354,7 @@ def export_manual(path: Path) -> None:
         "                | −J₂₁   J₁₁   J₂₂  −J₁₂ |", Math))
     story.append(Paragraph(
         "A su vez, las derivadas naturales de u y v se expresan en función "
-        "del vector de desplazamientos nodales q (ec. 38):", Body))
+        "del vector de desplazamientos nodales q (ec. 2.24):", Body))
     story.append(Paragraph(
         "[∂u/∂ξ, ∂u/∂η, ∂v/∂ξ, ∂v/∂η]ᵀ = G · q", Math))
     story.append(Paragraph(
@@ -362,7 +362,7 @@ def export_manual(path: Path) -> None:
         "(sección 2.1) ubicadas en las columnas de los GDL u y v de cada "
         "nodo, y q = [u₁, v₁, u₂, v₂, u₃, v₃, u₄, v₄]ᵀ.", Body))
     story.append(Paragraph(
-        "Finalmente, combinando ambas expresiones (ec. 39):", Body))
+        "Finalmente, combinando ambas expresiones (ec. 2.25):", Body))
     story.append(Paragraph(
         "ε = A · G · q = B · q      →      <b>B = A · G      (3 × 8)</b>", Math))
 
@@ -392,7 +392,7 @@ def export_manual(path: Path) -> None:
     story.append(Paragraph(
         "La matriz de rigidez del elemento se plantea, como en la guía, "
         "directamente en el dominio natural mediante el cambio de variable "
-        "dx·dy = det J·dξ·dη (ec. 33):", Body))
+        "dx·dy = det J·dξ·dη (ec. 2.19):", Body))
     story.append(Paragraph(
         "K^e = t · ∫₋₁¹ ∫₋₁¹ Bᵀ · D · B · det J · dξ · dη", Math))
     story.append(Paragraph(

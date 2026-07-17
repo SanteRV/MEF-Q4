@@ -302,15 +302,15 @@ def build_procedure(structure: Structure) -> Procedure:
 
     # ============= 6. Jacobiano y matriz B en cada punto de Gauss =============
     # Se muestran las matrices en el mismo orden que el documento guía:
-    # J (ec. 31) → det J → A (ec. 37) → G (ec. 38) → B = A·G (ec. 39).
+    # J (ec. 2.17) → det J → A (ec. 2.23) → G (ec. 2.24) → B = A·G (ec. 2.25).
     K_el, gp_list = el0.stiffness_matrix()
     matrices_gauss: dict[str, np.ndarray] = {}
     for i, gp in enumerate(gp_list, start=1):
-        matrices_gauss[f"GP{i} — J (Jacobiano, ec. 31)"] = gp.J
+        matrices_gauss[f"GP{i} — J (Jacobiano, ec. 2.17)"] = gp.J
         matrices_gauss[f"GP{i} — det J"] = np.array([[gp.detJ]])
-        matrices_gauss[f"GP{i} — A (3×4, ec. 37)"] = gp.A
-        matrices_gauss[f"GP{i} — G (4×8, ec. 38)"] = gp.G
-        matrices_gauss[f"GP{i} — B = A·G (3×8, ec. 39)"] = gp.B
+        matrices_gauss[f"GP{i} — A (3×4, ec. 2.23)"] = gp.A
+        matrices_gauss[f"GP{i} — G (4×8, ec. 2.24)"] = gp.G
+        matrices_gauss[f"GP{i} — B = A·G (3×8, ec. 2.25)"] = gp.B
 
     # Descripción adaptativa según la geometría del elemento
     desc_geom = ""
@@ -345,16 +345,16 @@ def build_procedure(structure: Structure) -> Procedure:
             "En cada punto de Gauss se calcula, siguiendo el orden del "
             "documento guía:\n"
             "• El Jacobiano J (2×2) con sus componentes J11, J12, J21, J22 "
-            "(ec. 31):  J11 = ∂x/∂ξ,  J12 = ∂y/∂ξ,  J21 = ∂x/∂η,  J22 = ∂y/∂η\n"
+            "(ec. 2.17):  J11 = ∂x/∂ξ,  J12 = ∂y/∂ξ,  J21 = ∂x/∂η,  J22 = ∂y/∂η\n"
             "• Su determinante det J, que realiza el cambio de variable "
-            "dx·dy = det J·dξ·dη (ec. 33)\n"
+            "dx·dy = det J·dξ·dη (ec. 2.19)\n"
             "• La matriz A (3×4), construida con la inversa explícita del "
-            "Jacobiano (ec. 32 y 37):\n"
+            "Jacobiano (ec. 2.18 y 2.23):\n"
             "   A = (1/det J)·[ J22  −J12   0    0  ;"
             "   0   0  −J21  J11 ;  −J21  J11  J22  −J12 ]\n"
             "• La matriz G (4×8), con las derivadas de las funciones de forma "
-            "respecto a ξ y η (ec. 38):  [∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η] = G·q\n"
-            "• La matriz strain-displacement B = A·G (3×8) (ec. 39), tal que "
+            "respecto a ξ y η (ec. 2.24):  [∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η] = G·q\n"
+            "• La matriz strain-displacement B = A·G (3×8) (ec. 2.25), tal que "
             "ε = A·G·q = B·q"
             + desc_geom
         ),
@@ -410,7 +410,7 @@ def build_procedure(structure: Structure) -> Procedure:
                 "(suma de las 4 contribuciones del paso 7).\n"
                 "\n"
                 "La integral se plantea en coordenadas naturales (ξ, η) gracias "
-                "al cambio de variable dx·dy = det J·dξ·dη (ec. 33). La "
+                "al cambio de variable dx·dy = det J·dξ·dη (ec. 2.19). La "
                 "cuadratura de Gauss 2×2 es exacta para polinomios de hasta "
                 "grado 3 en (ξ, η), que es lo que aparece en el integrando "
                 "para un Q4 bilineal.\n"
