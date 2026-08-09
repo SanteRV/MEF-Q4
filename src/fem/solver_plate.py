@@ -4,10 +4,11 @@ Para qué sirve: la parte GLOBAL del método para placas a flexión, con la
 misma secuencia que el documento teórico (cap. 01.01.06):
 
     1. Ensamblar K global (suma de los K^e de 12×12 según sus GDL).
-    2. Ensamblar F global (cargas nodales Fz, Mx, My + cargas repartidas).
-    3. Condiciones de borde por partición (ec. 5.3): reducir a GDL libres.
-    4. Resolver K_ff · U_f = F_f (ec. 5.4).
-    5. Reacciones en los apoyos (ec. 5.5): R = K_cf · U_f - F_c.
+    2. Ensamblar F global (cargas nodales Fz, Mx, My + carga repartida por
+       el 1er caso, ec. 1.3.19, o el 2do caso, ec. 1.3.20).
+    3. Condiciones de borde por partición (ec. 1.6.1): reducir a GDL libres.
+    4. Resolver K_ff · U_f = F_f (ec. 1.6.2).
+    5. Reacciones en los apoyos (ec. 1.6.3): R = K_cf · U_f - F_c.
     6. Post-proceso por elemento: w, curvaturas, momentos y esfuerzos.
 """
 from __future__ import annotations
@@ -55,11 +56,20 @@ def assemble_global_stiffness_plate(structure: StructurePlate) -> np.ndarray:
 
 
 def assemble_load_vector_plate(structure: StructurePlate,
-                               q_uniform: float = 0.0) -> np.ndarray:
-    """Ensambla F global: cargas nodales + carga repartida q (ec. 3.19).
+                               q_uniform: float = 0.0,
+                               load_case: str = "nodos") -> np.ndarray:
+    """Ensambla F global: cargas nodales + carga repartida q.
 
     q_uniform es una presión transversal (N/m², positiva hacia +Z) aplicada
-    a TODOS los elementos; cada elemento la reparte q·A/4 a sus nodos.
+    a TODOS los elementos. El documento contempla dos formas de bajarla a
+    los nodos (cap. 01.01.03.02.04):
+
+        load_case="nodos"    1er caso, ec. 1.3.19 — q·A/4 a cada nodo, sin
+                             momentos. Es el reparto directo.
+        load_case="vigas_y"  2do caso, ec. 1.3.20 — la placa apoya sobre
+                             vigas orientadas en Y: fuerza qv·b/2 y momento
+                             ±qv·b²/12 con qv = q·a/2.
+        load_case="vigas_x"  versión simétrica del 2do caso, vigas en X.
     """
     F = np.zeros(structure.n_dofs)
     for node in structure.nodes:
@@ -69,37 +79,56 @@ def assemble_load_vector_plate(structure: StructurePlate,
         F[d[2]] += node.load_my
     if q_uniform != 0.0:
         for el in structure.elements:
-            fe = el.load_vector_uniform(q_uniform)
+            if load_case == "nodos":
+                fe = el.load_vector_uniform(q_uniform)
+            elif load_case in ("vigas_x", "vigas_y"):
+                fe = el.load_vector_one_way(q_uniform, span=load_case[-1])
+            else:
+                raise ValueError(
+                    "load_case debe ser 'nodos', 'vigas_x' o 'vigas_y'."
+                )
             for i_local, i_global in enumerate(el.global_dofs()):
                 F[i_global] += fe[i_local]
     return F
 
 
 def solve_plate(structure: StructurePlate,
-                q_uniform: float = 0.0) -> FEMResultPlate:
+                q_uniform: float = 0.0,
+                load_case: str = "nodos") -> FEMResultPlate:
     """Resuelve el modelo de placa completo (desplazamientos, reacciones,
     momentos y esfuerzos)."""
     K = assemble_global_stiffness_plate(structure)
-    F = assemble_load_vector_plate(structure, q_uniform)
+    F = assemble_load_vector_plate(structure, q_uniform, load_case)
 
     free = structure.free_dofs()
     restrained = structure.restrained_dofs()
 
-    # Partición del sistema (ec. 5.3) y solución del bloque libre (ec. 5.4)
+    # Partición del sistema (ec. 1.6.1) con U_c = desplazamientos impuestos
+    u_c = structure.prescribed_displacements()[restrained]
     K_ff = K[np.ix_(free, free)]
+    K_fc = K[np.ix_(free, restrained)]
     F_f = F[free]
 
+    # Ec. 1.6.2:  K_ff·U_f = F_f − K_fc·U_c
     u = np.zeros(structure.n_dofs)
+    u[restrained] = u_c
     if len(free) > 0:
-        u_f = np.linalg.solve(K_ff, F_f)
+        u_f = np.linalg.solve(K_ff, F_f - K_fc @ u_c)
         u[free] = u_f
     else:
         u_f = np.zeros(0)
 
-    # Reacciones (ec. 5.5): fuerzas en los GDL restringidos
+    # Ec. 1.6.3:  K_cf·U_f + K_cc·U_c = F_c (fuerza total en el apoyo);
+    # la reacción descuenta la carga externa aplicada en ese mismo GDL.
     reactions = np.zeros(structure.n_dofs)
-    if len(restrained) > 0 and len(free) > 0:
-        reactions[restrained] = K[np.ix_(restrained, free)] @ u_f - F[restrained]
+    if len(restrained) > 0:
+        K_cf = K[np.ix_(restrained, free)]
+        K_cc = K[np.ix_(restrained, restrained)]
+        reactions[restrained] = (
+            (K_cf @ u_f if len(free) > 0 else 0.0)
+            + K_cc @ u_c
+            - F[restrained]
+        )
 
     # Post-proceso por elemento: momentos y esfuerzos en centro y esquinas
     element_results: list[ElementResultPlate] = []

@@ -1,20 +1,21 @@
 """Elemento cuadrilátero bilineal Q4 (tensión plana / deformación plana).
 
 Este módulo es el NÚCLEO del método: implementa la sección "ELEMENTOS
-PLANE" del documento teórico de la tesis (TEORÍA OK_PROGRAMA.docx,
-cap. 01.01.02), en su mismo orden y con sus mismas fórmulas (ec. 2.x):
+PLANE" del documento teórico de la tesis (TEORÍA OK.docx,
+cap. 01.01.02), en su mismo orden y con sus mismas fórmulas (ec. 1.2.x):
 
     K^e = t · ∫∫ Bᵀ·D·B · det J · dξ · dη          (integración 2×2 de Gauss)
 
-    1. Jacobiano J con componentes explícitos J11, J12, J21, J22   (ec. 2.17)
-    2. Inversa del Jacobiano en forma explícita                    (ec. 2.18)
+    1. Jacobiano J con componentes explícitos J11, J12, J21, J22   (ec. 1.2.17)
+    2. Inversa del Jacobiano en forma explícita                    (ec. 1.2.18)
        [∂F/∂x; ∂F/∂y] = (1/det J)·[[J22, -J12], [-J21, J11]]·[∂F/∂ξ; ∂F/∂η]
-    3. Cambio de variable  dx·dy = det J · dξ · dη                 (ec. 2.19)
-    4. Matriz A (3×4), reordena las derivadas naturales            (ec. 2.23)
-    5. Matriz G (4×8), derivadas de N respecto a ξ y η             (ec. 2.24)
-    6. Matriz strain-displacement  B = A·G  (3×8)                  (ec. 2.25)
+    3. Cambio de variable  dx·dy = det J · dξ · dη                 (ec. 1.2.19)
+    4. Matriz A (3×4), reordena las derivadas naturales            (ec. 1.2.23)
+    5. Matriz G (4×8), derivadas de N respecto a ξ y η             (ec. 1.2.24)
+    6. Matriz strain-displacement  B = A·G  (3×8)                  (ec. 1.2.25)
 
-Convención de nodos (la de la guía: CCW desde la esquina inferior izquierda):
+Convención de nodos (la del documento, figura 4: CCW desde la esquina
+inferior izquierda):
 
         η
     4 --- 3          N1 = (-1, -1)   inferior izquierda
@@ -22,21 +23,22 @@ Convención de nodos (la de la guía: CCW desde la esquina inferior izquierda):
     1 --- 2          N3 = (+1, +1)   superior derecha
                      N4 = (-1, +1)   superior izquierda
 
-Funciones de forma bilineales:  Ni = 1/4 (1 + ξ·ξi) (1 + η·ηi)
+Funciones de forma bilineales (ec. 1.2.7 a 1.2.10):  Ni = 1/4 (1 + ξ·ξi)(1 + η·ηi)
     N1 = 1/4 (1-ξ)(1-η)      N2 = 1/4 (1+ξ)(1-η)
     N3 = 1/4 (1+ξ)(1+η)      N4 = 1/4 (1-ξ)(1+η)
 
 Cada Ni vale 1 en su propio nodo y 0 en los otros tres (partición de la
 unidad). Con ellas se interpola tanto la geometría como los desplazamientos
-(planteamiento isoparamétrico, ec. 2.11 de la guía).
+(planteamiento isoparamétrico, ec. 1.2.11 del documento).
 """
 from __future__ import annotations
 from dataclasses import dataclass
 import numpy as np
+from .gauss import gauss_2d
 from .node import Node
 
 
-# ---------- Coordenadas naturales de los nodos (convención de la guía) ----------
+# ---------- Coordenadas naturales de los nodos (figura 4 del documento) ----------
 # Fila i = (ξi, ηi) del nodo i+1. Este arreglo define la convención de TODO
 # el programa: el orden de las funciones de forma, de las columnas de B y
 # del ensamblaje de K^e depende de esta numeración.
@@ -47,19 +49,17 @@ NATURAL_COORDS = np.array([
     [-1.0, +1.0],   # nodo 4  (-+)  superior izquierda
 ])
 
-# ---------- Puntos de Gauss 2×2 ----------
-# Cuadratura de Gauss-Legendre con 2 puntos por dirección: los puntos están
-# en (±1/√3, ±1/√3) y todos los pesos valen 1. Esta regla integra exacto
-# polinomios de grado ≤ 3, suficiente para el integrando Bᵀ·D·B del Q4.
+# ---------- Puntos de Gauss 2×2 (cap. 01.01.05, tabla 1 fila n=2) ----------
+# Regla de 2 puntos por dirección tomada de la tabla de Gauss del documento:
+# los puntos caen en (±1/√3, ±1/√3) y todos los pesos valen 1 (ec. 1.5.2).
+# Integra exacto polinomios de grado ≤ 3, suficiente para el integrando
+# Bᵀ·D·B·det J del Q4.
 # El orden de los GP sigue el de los nodos (--, +-, ++, -+): así el GP i
 # queda en el cuadrante del nodo i, lo que facilita la lectura didáctica.
-_G = 1.0 / np.sqrt(3.0)
-GAUSS_2X2 = [
-    (-_G, -_G, 1.0),   # GP1  (--)  cuadrante del nodo 1
-    (+_G, -_G, 1.0),   # GP2  (+-)  cuadrante del nodo 2
-    (+_G, +_G, 1.0),   # GP3  (++)  cuadrante del nodo 3
-    (-_G, +_G, 1.0),   # GP4  (-+)  cuadrante del nodo 4
-]
+GAUSS_2X2 = gauss_2d(2)
+
+# Número de puntos por dirección que usa este elemento (fila de la tabla 1).
+GAUSS_ORDER = 2
 
 
 def shape_functions(xi: float, eta: float) -> np.ndarray:
@@ -68,7 +68,7 @@ def shape_functions(xi: float, eta: float) -> np.ndarray:
     Para qué sirve: son los "pesos" con que cada nodo aporta al valor
     interpolado en el interior del elemento. Se usan para interpolar la
     geometría (x = Σ Ni·xi, y = Σ Ni·yi) y los desplazamientos
-    (u = Σ Ni·ui, v = Σ Ni·vi) — ec. 2.11 de la guía (isoparametría).
+    (u = Σ Ni·ui, v = Σ Ni·vi) — ec. 1.2.11 del documento (isoparametría).
 
     Devuelve el vector [N1, N2, N3, N4], donde Ni = 1/4(1 + ξ·ξi)(1 + η·ηi).
     """
@@ -83,9 +83,9 @@ def shape_function_derivatives(xi: float, eta: float) -> np.ndarray:
     """Derivadas de las funciones de forma respecto a ξ y η.
 
     Para qué sirve: estas derivadas alimentan dos cosas —
-      1. el Jacobiano J (ec. 2.17), que mide cómo se deforma el mapeo
+      1. el Jacobiano J (ec. 1.2.17), que mide cómo se deforma el mapeo
          natural → físico, y
-      2. la matriz G (ec. 2.24), que expresa las derivadas naturales de
+      2. la matriz G (ec. 1.2.24), que expresa las derivadas naturales de
          u y v en función de los desplazamientos nodales.
 
     Devuelve una matriz 2×4: fila 0 = ∂Ni/∂ξ, fila 1 = ∂Ni/∂η.
@@ -140,12 +140,12 @@ class Q4GaussData:
     weight: float            # peso w de la cuadratura (= 1 en la regla 2×2)
     N: np.ndarray            # (4,)   funciones de forma evaluadas en el GP
     dN_natural: np.ndarray   # (2,4)  ∂N/∂ξ y ∂N/∂η en el GP
-    J: np.ndarray            # (2,2)  Jacobiano (ec. 2.17)
-    detJ: float              # determinante de J (cambio de área, ec. 2.19)
-    A: np.ndarray            # (3,4)  matriz A (ec. 2.23)
-    G: np.ndarray            # (4,8)  matriz G (ec. 2.24)
-    dN_xy: np.ndarray        # (2,4)  ∂N/∂x y ∂N/∂y (vía inversa explícita, ec. 2.18)
-    B: np.ndarray            # (3,8)  strain-displacement B = A·G (ec. 2.25)
+    J: np.ndarray            # (2,2)  Jacobiano (ec. 1.2.17)
+    detJ: float              # determinante de J (cambio de área, ec. 1.2.19)
+    A: np.ndarray            # (3,4)  matriz A (ec. 1.2.23)
+    G: np.ndarray            # (4,8)  matriz G (ec. 1.2.24)
+    dN_xy: np.ndarray        # (2,4)  ∂N/∂x y ∂N/∂y (vía inversa explícita, ec. 1.2.18)
+    B: np.ndarray            # (3,8)  strain-displacement B = A·G (ec. 1.2.25)
 
 
 @dataclass
@@ -189,18 +189,18 @@ class Q4Element:
             dofs.extend(n.dofs)
         return dofs
 
-    # ---------- 1. Jacobiano (ec. 2.16-2.17 de la guía) ----------
+    # ---------- 1. Jacobiano (ec. 1.2.16-1.2.17 del documento) ----------
     def jacobian(self, xi: float, eta: float) -> tuple[np.ndarray, float]:
         """Jacobiano J (2×2) del mapeo natural → físico, con componentes explícitos.
 
         Para qué sirve: J conecta las derivadas en (ξ, η) con las derivadas
-        en (x, y) (regla de la cadena, ec. 2.16) y su determinante realiza el
-        cambio de variable de la integral: dx·dy = det J·dξ·dη (ec. 2.19).
+        en (x, y) (regla de la cadena, ec. 1.2.16) y su determinante realiza el
+        cambio de variable de la integral: dx·dy = det J·dξ·dη (ec. 1.2.19).
 
-            J = | J11  J12 |  =  | ∂x/∂ξ  ∂y/∂ξ |              (ec. 2.17)
+            J = | J11  J12 |  =  | ∂x/∂ξ  ∂y/∂ξ |              (ec. 1.2.17)
                 | J21  J22 |     | ∂x/∂η  ∂y/∂η |
 
-        Componentes según la ec. 2.17 de la guía (transcripción literal):
+        Componentes según la ec. 1.2.17 del documento (transcripción literal):
             J11 = 1/4·[-(1-η)·x1 + (1-η)·x2 + (1+η)·x3 - (1+η)·x4]
             J12 = 1/4·[-(1-η)·y1 + (1-η)·y2 + (1+η)·y3 - (1+η)·y4]
             J21 = 1/4·[-(1-ξ)·x1 - (1+ξ)·x2 + (1+ξ)·x3 + (1-ξ)·x4]
@@ -221,7 +221,7 @@ class Q4Element:
         detJ = J11 * J22 - J12 * J21
         return J, detJ
 
-    # ---------- 4. Matriz A (ec. 2.23 de la guía) ----------
+    # ---------- 4. Matriz A (ec. 1.2.23 del documento) ----------
     @staticmethod
     def A_matrix(J: np.ndarray, detJ: float) -> np.ndarray:
         """Matriz A (3×4): convierte derivadas naturales de u y v en deformaciones.
@@ -229,11 +229,11 @@ class Q4Element:
         Para qué sirve: las deformaciones físicas ε = [εx, εy, γxy] requieren
         derivadas respecto a (x, y), pero lo que sabemos derivar fácil es
         respecto a (ξ, η). A hace esa conversión usando la inversa explícita
-        del Jacobiano (ec. 2.18) aplicada a u y v (ec. 2.20 y 2.21):
+        del Jacobiano (ec. 1.2.18) aplicada a u y v (ec. 1.2.20 y 1.2.21):
 
             ε = [∂u/∂x; ∂v/∂y; ∂u/∂y + ∂v/∂x] = A·[∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η]
 
-            A = (1/det J) · | J22  -J12   0     0   |             (ec. 2.23)
+            A = (1/det J) · | J22  -J12   0     0   |             (ec. 1.2.23)
                             |  0     0  -J21   J11  |
                             | -J21  J11  J22  -J12  |
         """
@@ -245,7 +245,7 @@ class Q4Element:
             [-J21, J11,  J22, -J12],
         ])
 
-    # ---------- 5. Matriz G (ec. 2.24 de la guía) ----------
+    # ---------- 5. Matriz G (ec. 1.2.24 del documento) ----------
     @staticmethod
     def G_matrix(xi: float, eta: float) -> np.ndarray:
         """Matriz G (4×8): deriva el campo de desplazamientos respecto a ξ y η.
@@ -254,11 +254,11 @@ class Q4Element:
         sus derivadas naturales son combinaciones de las ∂Ni/∂ξ y ∂Ni/∂η.
         G organiza esos coeficientes para escribirlo en forma matricial:
 
-            [∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η] = G·q                   (ec. 2.24)
+            [∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η] = G·q                   (ec. 1.2.24)
 
         con q = [q1..q8] = [u1, v1, u2, v2, u3, v3, u4, v4].
 
-        Transcripción literal de la ec. 2.24 de la guía:
+        Transcripción literal de la ec. 1.2.24 del documento:
 
             G = 1/4 · | -(1-η)   0    (1-η)   0    (1+η)   0   -(1+η)   0   |
                       | -(1-ξ)   0   -(1+ξ)   0    (1+ξ)   0    (1-ξ)   0   |
@@ -272,7 +272,7 @@ class Q4Element:
             [0.0, -(1 - xi),  0.0, -(1 + xi),  0.0, +(1 + xi),  0.0, +(1 - xi)],
         ])
 
-    # ---------- 6. Matriz B = A·G (ec. 2.25 de la guía) ----------
+    # ---------- 6. Matriz B = A·G (ec. 1.2.25 del documento) ----------
     def B_matrix(self, xi: float, eta: float) -> tuple[np.ndarray, np.ndarray, float, np.ndarray]:
         """Matriz strain-displacement B (3×8) siguiendo la guía: B = A·G.
 
@@ -281,7 +281,7 @@ class Q4Element:
         K^e = t·∫∫ Bᵀ·D·B·det J·dξ·dη y del post-proceso de esfuerzos.
 
         Devuelve (B, J, detJ, dN_xy). Las derivadas cartesianas dN_xy se
-        obtienen con la inversa explícita del Jacobiano (ec. 2.18):
+        obtienen con la inversa explícita del Jacobiano (ec. 1.2.18):
 
             [∂Ni/∂x; ∂Ni/∂y] = (1/det J)·[[J22, -J12], [-J21, J11]]·[∂Ni/∂ξ; ∂Ni/∂η]
         """
@@ -295,11 +295,11 @@ class Q4Element:
                 "Revisa el orden de los nodos (debe ser antihorario)."
             )
 
-        A = self.A_matrix(J, detJ)          # (3,4)  ec. 2.23
-        G = self.G_matrix(xi, eta)          # (4,8)  ec. 2.24
-        B = A @ G                           # (3,8)  ec. 2.25: ε = A·G·q = B·q
+        A = self.A_matrix(J, detJ)          # (3,4)  ec. 1.2.23
+        G = self.G_matrix(xi, eta)          # (4,8)  ec. 1.2.24
+        B = A @ G                           # (3,8)  ec. 1.2.25: ε = A·G·q = B·q
 
-        # Derivadas cartesianas con la inversa explícita (ec. 2.18) — se usan
+        # Derivadas cartesianas con la inversa explícita (ec. 1.2.18) — se usan
         # en la presentación didáctica paso a paso.
         J11, J12 = J[0, 0], J[0, 1]
         J21, J22 = J[1, 0], J[1, 1]
@@ -338,14 +338,14 @@ class Q4Element:
         return data
 
     def stiffness_matrix(self) -> tuple[np.ndarray, list[Q4GaussData]]:
-        """Matriz de rigidez del elemento según la fórmula de la guía:
+        """Matriz de rigidez del elemento según la fórmula del documento:
 
             K^e = t · ∫∫ Bᵀ·D·B · det J · dξ · dη  ≈  Σᵢ Bᵢᵀ·D·Bᵢ·t·det Jᵢ·wᵢ
 
         Para qué sirve: K^e relaciona los 8 desplazamientos nodales del
         elemento con las 8 fuerzas nodales (equilibrio elástico). La
         integral se evalúa con cuadratura de Gauss 2×2 (wᵢ = 1); el cambio
-        de variable dx·dy = det J·dξ·dη es la ec. 2.19 de la guía.
+        de variable dx·dy = det J·dξ·dη es la ec. 1.2.19 del documento.
 
         Devuelve la matriz K (8×8, simétrica) y los datos de cada punto
         de Gauss para el paso a paso.

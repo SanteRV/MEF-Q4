@@ -3,13 +3,14 @@
 Para qué sirve: este módulo ejecuta la parte GLOBAL del método —
 lo que viene después de que cada elemento calculó su K^e:
 
-    1. Ensamblar la matriz de rigidez global K (suma directa de los K^e).
-    2. Ensamblar el vector de cargas F (cargas nodales).
-    3. Aplicar condiciones de borde: reducir el sistema a los GDL libres.
-    4. Resolver K_ff · u_f = F_f (desplazamientos).
-    5. Recuperar las reacciones en los apoyos: R = K·u − F.
-    6. Post-proceso: deformaciones y esfuerzos por elemento
-       (ε = B·q, σ = D·ε) en los puntos de Gauss y en las esquinas.
+    1. Ensamblar la matriz de rigidez global K (cap. 01.01.06.01).
+    2. Ensamblar el vector de cargas F (cap. 01.01.06.02).
+    3. Aplicar condiciones de borde por partición f/c (ec. 1.6.1).
+    4. Resolver K_ff·U_f = F_f − K_fc·U_c (ec. 1.6.2).
+    5. Reacciones en los apoyos: K_cf·U_f + K_cc·U_c = F_c (ec. 1.6.3).
+    6. Recuperación de resultados (cap. 01.01.07): deformaciones y
+       esfuerzos por elemento (ε = B·q, σ = D·ε) en los puntos de Gauss
+       y en las esquinas.
 """
 from __future__ import annotations
 from dataclasses import dataclass
@@ -80,28 +81,42 @@ def solve(structure: Structure) -> FEMResult:
     K = assemble_global_stiffness(structure)
     F = assemble_load_vector(structure)
 
-    # Condiciones de borde: separar GDL libres (incógnitas) de restringidos
+    # Condiciones de borde por partición (ec. 1.6.1): f = libres, c = restringidos
+    #     | K_ff  K_fc | | U_f |   | F_f |
+    #     | K_cf  K_cc | | U_c | = | F_c |
     free = structure.free_dofs()
     restrained = structure.restrained_dofs()
 
-    # Sistema reducido: solo filas/columnas de GDL libres. Los apoyos
-    # aportan u = 0, así que sus columnas no contribuyen al lado derecho.
+    # U_c: desplazamientos conocidos en los apoyos (0 en un apoyo rígido)
+    u_c = structure.prescribed_displacements()[restrained]
+
     K_ff = K[np.ix_(free, free)]
+    K_fc = K[np.ix_(free, restrained)]
     F_f = F[free]
 
-    # Resolver K_ff · u_f = F_f (desplazamientos de los GDL libres)
+    # Ec. 1.6.2:  K_ff·U_f + K_fc·U_c = F_f  →  K_ff·U_f = F_f − K_fc·U_c
+    # El término K_fc·U_c es la carga equivalente de los asentamientos
+    # impuestos; con U_c = 0 se anula y queda el caso clásico K_ff·U_f = F_f.
     u = np.zeros(structure.n_dofs)
+    u[restrained] = u_c
     if len(free) > 0:
-        u_f = np.linalg.solve(K_ff, F_f)
+        u_f = np.linalg.solve(K_ff, F_f - K_fc @ u_c)
         u[free] = u_f
     else:
         u_f = np.zeros(0)
 
-    # Reacciones en los apoyos: R = K_rf · u_f − F_r
-    # (la fuerza que el apoyo debe ejercer para mantener u = 0 ahí)
+    # Ec. 1.6.3:  K_cf·U_f + K_cc·U_c = F_c. F_c es la fuerza TOTAL en el
+    # apoyo; la reacción es esa fuerza menos la carga externa ya aplicada
+    # sobre ese mismo GDL.
     reactions = np.zeros(structure.n_dofs)
-    if len(restrained) > 0 and len(free) > 0:
-        reactions[restrained] = K[np.ix_(restrained, free)] @ u_f - F[restrained]
+    if len(restrained) > 0:
+        K_cf = K[np.ix_(restrained, free)]
+        K_cc = K[np.ix_(restrained, restrained)]
+        reactions[restrained] = (
+            (K_cf @ u_f if len(free) > 0 else 0.0)
+            + K_cc @ u_c
+            - F[restrained]
+        )
 
     # Post-proceso por elemento: con los desplazamientos u_e del elemento
     # se recuperan ε = B·q y σ = D·ε en los puntos de Gauss (donde la

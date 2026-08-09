@@ -9,6 +9,7 @@ que el solver necesita para armar y reducir el sistema K·u = F:
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
+import numpy as np
 from .node import Node
 from .q4_element import Q4Element
 
@@ -48,5 +49,22 @@ class Structure:
         return free
 
     def restrained_dofs(self) -> list[int]:
-        """GDL CON apoyo — donde el desplazamiento es 0 y aparecen reacciones."""
-        return [d for d in range(self.n_dofs) if d not in self.free_dofs()]
+        """GDL CON apoyo — desplazamiento conocido y reacción incógnita."""
+        libres = set(self.free_dofs())
+        return [d for d in range(self.n_dofs) if d not in libres]
+
+    def prescribed_displacements(self) -> np.ndarray:
+        """Vector de tamaño n_dofs con los desplazamientos impuestos.
+
+        Para qué sirve: es el vector U_c de la ec. 1.6.1 colocado en su
+        posición global. Solo se leen las componentes de GDL restringidos;
+        en los libres queda 0 (ahí el desplazamiento es la incógnita).
+        Con todos los valores en 0 el sistema se reduce al apoyo rígido.
+        """
+        u_c = np.zeros(self.n_dofs)
+        for n in self.nodes:
+            if n.restraint_x:
+                u_c[n.dofs[0]] = n.prescribed_x
+            if n.restraint_y:
+                u_c[n.dofs[1]] = n.prescribed_y
+        return u_c

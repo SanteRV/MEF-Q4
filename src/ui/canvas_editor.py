@@ -932,7 +932,7 @@ class CanvasEditor(QWidget):
                            x1: float, y1: float) -> None:
         """Crea 4 nodos + 1 elemento Q4 a partir de 2 esquinas opuestas.
 
-        Convención de nodos del Q4 (la de la guía, CCW desde inf-izq):
+        Convención de nodos del Q4 (la del documento, CCW desde inf-izq):
         --, +-, ++, -+. Se calcula correctamente independiente del orden
         de click del usuario.
         """

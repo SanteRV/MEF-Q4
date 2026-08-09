@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .structure import Structure
+from .gauss import table_rows as gauss_table_rows
 from .q4_element import GAUSS_2X2, NATURAL_COORDS, Q4Element
 from .solver import (
     assemble_global_stiffness,
@@ -72,7 +73,7 @@ def _shape_function_text() -> pd.DataFrame:
 
     Al derivarse de la misma constante que usa el cálculo, la tabla nunca
     puede quedar desincronizada de la convención de nodos del programa
-    (la de la guía: N1=(--), N2=(+-), N3=(++), N4=(-+)).
+    (la del documento: N1=(--), N2=(+-), N3=(++), N4=(-+)).
     """
     rows = []
     for i, (xi_i, eta_i) in enumerate(NATURAL_COORDS, start=1):
@@ -97,6 +98,15 @@ def _gauss_points_text() -> pd.DataFrame:
         {"Punto": f"GP{i}", "ξ": xi, "η": eta, "Peso": w}
         for i, (xi, eta, w) in enumerate(GAUSS_2X2, start=1)
     ])
+
+
+def _gauss_table_text() -> pd.DataFrame:
+    """Tabla 1 del documento (cap. 01.01.05): puntos y pesos para n = 1..6.
+
+    Se muestra completa, no solo la fila que usa el Q4, para que se vea de
+    dónde salen ±1/√3 y los pesos unitarios de la regla 2×2.
+    """
+    return pd.DataFrame(gauss_table_rows())
 
 
 def build_procedure(structure: Structure) -> Procedure:
@@ -149,6 +159,8 @@ def build_procedure(structure: Structure) -> Procedure:
             "Nodo": n.id + 1,
             "Restringido X": "Sí" if n.restraint_x else "No",
             "Restringido Y": "Sí" if n.restraint_y else "No",
+            "ux impuesto (m)": n.prescribed_x if n.restraint_x else 0.0,
+            "uy impuesto (m)": n.prescribed_y if n.restraint_y else 0.0,
             "Carga Fx (N)": n.load_x,
             "Carga Fy (N)": n.load_y,
         }
@@ -163,14 +175,25 @@ def build_procedure(structure: Structure) -> Procedure:
                 "movimientos de cuerpo rígido (traslación + rotación en 2D = 3 GDL).\n"
                 "  2. Aplicar las cargas externas como fuerzas concentradas en los nodos.\n"
                 "\n"
+                "El documento (cap. 01.01.06.03) admite DOS tipos de condición "
+                "de borde:\n"
+                "  • Cargas aplicadas: fuerzas Fx, Fy en los nodos.\n"
+                "  • Desplazamientos conocidos: valores impuestos en los GDL "
+                "restringidos (vector U_c). Un apoyo rígido es el caso "
+                "particular U_c = 0; un valor distinto de 0 representa un "
+                "asentamiento o desplazamiento forzado.\n"
+                "\n"
                 "Convenciones:\n"
-                "  • Restringido X = el nodo no puede moverse en dirección horizontal.\n"
-                "  • Restringido Y = el nodo no puede moverse en dirección vertical.\n"
+                "  • Restringido X = el desplazamiento horizontal es CONOCIDO.\n"
+                "  • Restringido Y = el desplazamiento vertical es CONOCIDO.\n"
+                "  • ux, uy impuestos = valor de ese desplazamiento conocido (m).\n"
                 "  • Fx, Fy = componentes de la fuerza aplicada en el nodo (N).\n"
                 "\n"
-                "Estos GDL restringidos se eliminarán del sistema en el paso 11."
+                "Estos GDL restringidos se separan del sistema en el paso 11."
             ),
-            experto="Restricciones (Fix X/Y) + cargas Fx, Fy por nodo.",
+            experto=(
+                "Restricciones (Fix X/Y) + U_c impuesto + cargas Fx, Fy por nodo."
+            ),
         ),
         tables={"Apoyos y cargas": df_bc},
         plot_key="bc",
@@ -192,7 +215,7 @@ def build_procedure(structure: Structure) -> Procedure:
                 "desplazamiento) dentro del elemento: f(ξ,η) = Σ Ni(ξ,η) · fi.\n"
                 "\n"
                 "El diagrama muestra el cuadrado patrón en (ξ, η) ∈ [-1, 1] con "
-                "la convención de numeración de la guía: N₁ en (-,-), N₂ en "
+                "la convención de numeración del documento: N₁ en (-,-), N₂ en "
                 "(+,-), N₃ en (+,+), N₄ en (-,+), recorriendo CCW desde la "
                 "esquina inferior izquierda."
             ),
@@ -212,19 +235,28 @@ def build_procedure(structure: Structure) -> Procedure:
             novato=(
                 "La integral K^e = ∫∫ Bᵀ·D·B·t dx dy no se puede resolver "
                 "analíticamente para un Q4 general. Se aproxima con cuadratura "
-                "de Gauss, que evalúa el integrando en pocos puntos cuidadosamente "
-                "elegidos:\n"
-                "  ∫₋₁¹∫₋₁¹ f(ξ,η) dξ dη ≈ Σᵢ wᵢ · f(ξᵢ, ηᵢ)\n"
+                "de Gauss (cap. 01.01.05 del documento), que evalúa el "
+                "integrando en pocos puntos cuidadosamente elegidos:\n"
+                "  ∫₋₁¹ Φ(ξ) dξ ≈ W₁·Φ(ξ₁) + ... + Wₙ·Φ(ξₙ)          (ec. 1.5.1)\n"
+                "  ∫₋₁¹∫₋₁¹ Φ(ξ,η) dξ dη ≈ Σᵢ Σⱼ Wᵢ·Wⱼ·Φ(ξᵢ, ηⱼ)      (ec. 1.5.2)\n"
                 "\n"
-                "Con 2×2 puntos (4 totales) en ±1/√3 ≈ ±0.5774 y peso w=1, "
-                "la cuadratura es exacta para polinomios de hasta grado 3 en (ξ,η), "
-                "que es justo lo que aparece en Bᵀ·B para un Q4 bilineal."
+                "La segunda tabla reproduce la Tabla 1 del documento con los "
+                "puntos ξᵢ y pesos Wᵢ para n = 1 a 6; una regla de n puntos "
+                "integra exacto polinomios de grado ≤ 2n−1.\n"
+                "\n"
+                "El Q4 usa la fila n = 2 en cada dirección: 4 puntos en "
+                "±1/√3 ≈ ±0.5774 con peso W = 1, exacta hasta grado 3 en (ξ,η), "
+                "que es justo lo que aparece en Bᵀ·D·B·det J para un Q4 bilineal."
             ),
             experto=(
-                "Cuadratura Gauss 2×2: 4 puntos en (±1/√3, ±1/√3), w=1."
+                "Cuadratura Gauss 2×2 (tabla 1, fila n=2): "
+                "4 puntos en (±1/√3, ±1/√3), W=1. Ec. 1.5.1 y 1.5.2."
             ),
         ),
-        tables={"Puntos de Gauss": _gauss_points_text()},
+        tables={
+            "Puntos de Gauss usados (2×2)": _gauss_points_text(),
+            "Tabla 1 — puntos y pesos de Gauss (n = 1..6)": _gauss_table_text(),
+        },
     ))
 
     # ============= 5. Matriz constitutiva D =============
@@ -301,16 +333,16 @@ def build_procedure(structure: Structure) -> Procedure:
     ))
 
     # ============= 6. Jacobiano y matriz B en cada punto de Gauss =============
-    # Se muestran las matrices en el mismo orden que el documento guía:
-    # J (ec. 2.17) → det J → A (ec. 2.23) → G (ec. 2.24) → B = A·G (ec. 2.25).
+    # Se muestran las matrices en el mismo orden que el documento teórico:
+    # J (ec. 1.2.17) → det J → A (ec. 1.2.23) → G (ec. 1.2.24) → B = A·G (ec. 1.2.25).
     K_el, gp_list = el0.stiffness_matrix()
     matrices_gauss: dict[str, np.ndarray] = {}
     for i, gp in enumerate(gp_list, start=1):
-        matrices_gauss[f"GP{i} — J (Jacobiano, ec. 2.17)"] = gp.J
+        matrices_gauss[f"GP{i} — J (Jacobiano, ec. 1.2.17)"] = gp.J
         matrices_gauss[f"GP{i} — det J"] = np.array([[gp.detJ]])
-        matrices_gauss[f"GP{i} — A (3×4, ec. 2.23)"] = gp.A
-        matrices_gauss[f"GP{i} — G (4×8, ec. 2.24)"] = gp.G
-        matrices_gauss[f"GP{i} — B = A·G (3×8, ec. 2.25)"] = gp.B
+        matrices_gauss[f"GP{i} — A (3×4, ec. 1.2.23)"] = gp.A
+        matrices_gauss[f"GP{i} — G (4×8, ec. 1.2.24)"] = gp.G
+        matrices_gauss[f"GP{i} — B = A·G (3×8, ec. 1.2.25)"] = gp.B
 
     # Descripción adaptativa según la geometría del elemento
     desc_geom = ""
@@ -343,18 +375,18 @@ def build_procedure(structure: Structure) -> Procedure:
         title="6. Jacobiano J y matriz B = A·G en los puntos de Gauss",
         description=(
             "En cada punto de Gauss se calcula, siguiendo el orden del "
-            "documento guía:\n"
+            "documento teórico:\n"
             "• El Jacobiano J (2×2) con sus componentes J11, J12, J21, J22 "
-            "(ec. 2.17):  J11 = ∂x/∂ξ,  J12 = ∂y/∂ξ,  J21 = ∂x/∂η,  J22 = ∂y/∂η\n"
+            "(ec. 1.2.17):  J11 = ∂x/∂ξ,  J12 = ∂y/∂ξ,  J21 = ∂x/∂η,  J22 = ∂y/∂η\n"
             "• Su determinante det J, que realiza el cambio de variable "
-            "dx·dy = det J·dξ·dη (ec. 2.19)\n"
+            "dx·dy = det J·dξ·dη (ec. 1.2.19)\n"
             "• La matriz A (3×4), construida con la inversa explícita del "
-            "Jacobiano (ec. 2.18 y 2.23):\n"
+            "Jacobiano (ec. 1.2.18 y 1.2.23):\n"
             "   A = (1/det J)·[ J22  −J12   0    0  ;"
             "   0   0  −J21  J11 ;  −J21  J11  J22  −J12 ]\n"
             "• La matriz G (4×8), con las derivadas de las funciones de forma "
-            "respecto a ξ y η (ec. 2.24):  [∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η] = G·q\n"
-            "• La matriz strain-displacement B = A·G (3×8) (ec. 2.25), tal que "
+            "respecto a ξ y η (ec. 1.2.24):  [∂u/∂ξ; ∂u/∂η; ∂v/∂ξ; ∂v/∂η] = G·q\n"
+            "• La matriz strain-displacement B = A·G (3×8) (ec. 1.2.25), tal que "
             "ε = A·G·q = B·q"
             + desc_geom
         ),
@@ -405,12 +437,12 @@ def build_procedure(structure: Structure) -> Procedure:
         title="8. Matriz de rigidez por elemento K^e (8×8)",
         description=_desc(
             novato=(
-                "Según la fórmula de la guía:\n"
+                "Según la fórmula del documento:\n"
                 "  K^e = t·∫₋₁¹∫₋₁¹ Bᵀ·D·B · det J · dξ·dη ≈ Σᵢ K_GPi   "
                 "(suma de las 4 contribuciones del paso 7).\n"
                 "\n"
                 "La integral se plantea en coordenadas naturales (ξ, η) gracias "
-                "al cambio de variable dx·dy = det J·dξ·dη (ec. 2.19). La "
+                "al cambio de variable dx·dy = det J·dξ·dη (ec. 1.2.19). La "
                 "cuadratura de Gauss 2×2 es exacta para polinomios de hasta "
                 "grado 3 en (ξ, η), que es lo que aparece en el integrando "
                 "para un Q4 bilineal.\n"
@@ -470,50 +502,69 @@ def build_procedure(structure: Structure) -> Procedure:
         matrices={"F": F.reshape(-1, 1)},
     ))
 
-    # ============= 11. Sistema reducido =============
+    # ============= 11. Partición por condiciones de borde (ec. 1.6.1) =============
     free = structure.free_dofs()
+    restrained = structure.restrained_dofs()
     K_ff = K_global[np.ix_(free, free)]
+    K_fc = K_global[np.ix_(free, restrained)]
+    K_cf = K_global[np.ix_(restrained, free)]
+    K_cc = K_global[np.ix_(restrained, restrained)]
     F_f = F[free]
-    # Método de penalización (alternativa pedagógica al método de reducción):
+    U_c = structure.prescribed_displacements()[restrained]
+    # Carga equivalente de los desplazamientos impuestos: es 0 cuando todos
+    # los apoyos son rígidos (U_c = 0), que es el caso habitual.
+    F_eq = F_f - K_fc @ U_c
+    # Método de penalización (alternativa pedagógica al método de partición):
     # K_pen[restringido, restringido] += α  con α muy grande (típicamente 1e10·max(K))
     K_pen = K_global.copy()
     F_pen = F.copy()
     alpha = 1e10 * float(np.max(np.abs(K_global))) if K_global.size else 1e15
-    for d in structure.restrained_dofs():
+    for d, valor in zip(restrained, U_c):
         K_pen[d, d] += alpha
-        F_pen[d] = 0.0   # restringimos a 0 (apoyo fijo)
+        F_pen[d] = alpha * valor   # fuerza el GDL al desplazamiento impuesto
     steps.append(Step(
-        title="11. Aplicación de condiciones de borde (sistema reducido)",
+        title="11. Condiciones de borde: partición del sistema (ec. 1.6.1)",
         description=_desc(
             novato=(
-                "Existen DOS métodos clásicos para imponer las condiciones de borde:\n"
+                "El documento aplica las condiciones de borde REORDENANDO el "
+                "sistema en bloques (ec. 1.6.1), separando los GDL libres (f) "
+                "de los restringidos (c):\n"
                 "\n"
-                "**Método 1 — Reducción del sistema (el que usamos):**\n"
-                "Se eliminan las filas y columnas correspondientes a GDL "
-                "restringidos. Queda el sistema K_ff · u_f = F_f de tamaño menor.\n"
-                "Ventaja: el sistema queda más pequeño y mejor condicionado.\n"
-                "Desventaja: requiere reindexar los GDL.\n"
+                "  | K_ff  K_fc | | U_f |   | F_f |\n"
+                "  | K_cf  K_cc | | U_c | = | F_c |\n"
                 "\n"
-                "**Método 2 — Penalización (alternativa):**\n"
+                "  • K_ff relaciona los desplazamientos DESCONOCIDOS entre sí.\n"
+                "  • K_fc y K_cf acoplan libres con restringidos.\n"
+                "  • K_cc corresponde solo a los GDL restringidos.\n"
+                "  • U_c son los desplazamientos CONOCIDOS del paso 2.\n"
+                "  • F_c, una vez resuelto el sistema, son las reacciones.\n"
+                "\n"
+                "De la primera fila sale el sistema que se resuelve (ec. 1.6.2):\n"
+                "  K_ff · U_f = F_f − K_fc · U_c\n"
+                "El término K_fc·U_c es la carga equivalente de los "
+                "desplazamientos impuestos; vale 0 cuando todos los apoyos son "
+                "rígidos (U_c = 0).\n"
+                "\n"
+                "**Alternativa — penalización (no es la del documento):**\n"
                 "Se suma un valor α muy grande (≈ 10¹⁰ · max(K)) en la diagonal "
-                "de los GDL restringidos. Esto los 'fuerza' a quedar en cero sin "
-                "eliminarlos.\n"
+                "de los GDL restringidos, sin eliminarlos del sistema.\n"
                 f"En este problema, α = {alpha:.3e}.\n"
-                "Ventaja: el sistema mantiene su tamaño original (más simple de implementar).\n"
-                "Desventaja: el sistema queda mal condicionado numéricamente.\n"
-                "\n"
-                "Las matrices mostradas son: K_ff (reducción) y K_pen (penalización). "
-                "Ambos métodos producen los mismos desplazamientos (cuando α es "
-                "suficientemente grande)."
+                "Ventaja: el sistema mantiene su tamaño original. "
+                "Desventaja: queda mal condicionado numéricamente."
             ),
             experto=(
-                "Reducción: eliminar filas/cols restringidas → K_ff · u_f = F_f.\n"
+                "Partición ec. 1.6.1 → K_ff·U_f = F_f − K_fc·U_c (ec. 1.6.2).\n"
                 "Alternativa: penalización K[d,d] += α (α≈10¹⁰·max(K))."
             ),
         ),
         matrices={
-            "K_ff (reducción)": K_ff,
+            "K_ff (GDL libres)": K_ff,
+            "K_fc (libres × restringidos)": K_fc,
+            "K_cf (restringidos × libres)": K_cf,
+            "K_cc (GDL restringidos)": K_cc,
+            "U_c (desplazamientos impuestos)": U_c.reshape(-1, 1),
             "F_f": F_f.reshape(-1, 1),
+            "F_f − K_fc·U_c (lado derecho de la ec. 1.6.2)": F_eq.reshape(-1, 1),
             "K_pen (penalización)": K_pen,
             "F_pen": F_pen.reshape(-1, 1),
         },
@@ -533,17 +584,20 @@ def build_procedure(structure: Structure) -> Procedure:
         title="12. Solución: desplazamientos nodales",
         description=_desc(
             novato=(
-                "Se resuelve el sistema lineal K_ff · u_f = F_f mediante "
-                "factorización LU (numpy.linalg.solve).\n"
+                "Se resuelve el sistema lineal K_ff · U_f = F_f − K_fc · U_c "
+                "(ec. 1.6.2) mediante factorización LU (numpy.linalg.solve).\n"
                 "\n"
-                "Los desplazamientos en GDL restringidos son automáticamente 0 "
-                "(no aparecen en el sistema reducido).\n"
+                "Los desplazamientos en GDL restringidos no son incógnitas: "
+                "toman el valor impuesto U_c (0 en un apoyo rígido).\n"
                 "\n"
                 "La gráfica de la derecha muestra la deformada con un factor "
                 "de amplificación visual (los desplazamientos reales suelen ser "
                 "microscópicos: ~10⁻⁶ m). Usá el slider para cambiar la escala."
             ),
-            experto="K_ff · u_f = F_f resuelto con LU (numpy.linalg.solve).",
+            experto=(
+                "Ec. 1.6.2: K_ff·U_f = F_f − K_fc·U_c, resuelto con LU "
+                "(numpy.linalg.solve)."
+            ),
         ),
         tables={"Desplazamientos": df_disp},
         plot_key="deformed",
@@ -562,9 +616,12 @@ def build_procedure(structure: Structure) -> Procedure:
         title="13. Reacciones en los apoyos",
         description=_desc(
             novato=(
-                "Una vez conocidos los desplazamientos, las reacciones en los "
-                "GDL restringidos se calculan como:\n"
-                "  R = K · u − F   (en los GDL restringidos)\n"
+                "Una vez conocidos los desplazamientos, la segunda fila de la "
+                "partición (ec. 1.6.3) da la fuerza total en los apoyos:\n"
+                "  K_cf · U_f + K_cc · U_c = F_c\n"
+                "La reacción es esa fuerza menos la carga externa que ya "
+                "estuviera aplicada sobre el mismo GDL:\n"
+                "  R = K_cf·U_f + K_cc·U_c − F_aplicado\n"
                 "\n"
                 "Estas reacciones deben equilibrar las cargas externas aplicadas "
                 "(ΣR + ΣF_aplicado = 0 para cada componente).\n"
@@ -572,7 +629,7 @@ def build_procedure(structure: Structure) -> Procedure:
                 "Es una verificación útil: si la suma de reacciones no equilibra "
                 "las cargas, hay un error en el cálculo."
             ),
-            experto="R = K·u − F (en GDL restringidos).",
+            experto="Ec. 1.6.3: R = K_cf·U_f + K_cc·U_c − F_aplicado.",
         ),
         tables={"Reacciones": df_reac if not df_reac.empty else pd.DataFrame()},
     ))
@@ -640,8 +697,9 @@ def build_procedure(structure: Structure) -> Procedure:
         title="15. Deformaciones y esfuerzos en las esquinas (nodos)",
         description=(
             "Los esfuerzos se evalúan directamente en cada esquina del "
-            "elemento usando B(ξ, η) en las coordenadas naturales del nodo:\n"
-            "  N1 = (+1, +1)   N2 = (−1, +1)   N3 = (−1, −1)   N4 = (+1, −1)\n"
+            "elemento usando B(ξ, η) en las coordenadas naturales del nodo "
+            "(figura 4 del documento, CCW desde la esquina inferior izquierda):\n"
+            "  N1 = (−1, −1)   N2 = (+1, −1)   N3 = (+1, +1)   N4 = (−1, +1)\n"
             "Luego  ε = B · u^e   y   σ = D · ε.\n"
             "Las matrices B(esquina) se muestran abajo para verificación "
             "manual: ε = B · u^e seguido de σ = D · ε reproduce los valores "

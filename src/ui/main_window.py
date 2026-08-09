@@ -433,8 +433,51 @@ class MainWindow(QMainWindow):
         a_mohr.triggered.connect(self.show_mohr_dialog)
         herramientas.addAction(a_mohr)
 
+        # ===== Menú Ayuda =====
+        ayuda = menu.addMenu("A&yuda")
+        a_modelos = QAction("¿Qué &modelo debo usar?", self)
+        a_modelos.setShortcut("F1")
+        a_modelos.triggered.connect(self.show_model_guide)
+        ayuda.addAction(a_modelos)
+
         # Estado del proyecto actual
         self._current_project_path: Path | None = None
+
+    def show_model_guide(self) -> None:
+        """Guía breve para elegir entre los cuatro modelos del documento.
+
+        Con cuatro formulaciones disponibles, la pregunta que se hace quien
+        abre el programa no es "qué botón toco" sino "cuál de los cuatro
+        corresponde a mi estructura". Esto la responde en una pantalla.
+        """
+        QMessageBox.information(
+            self, "¿Qué modelo debo usar?",
+            "<b>El aplicativo cubre los cuatro elementos del documento "
+            "teórico. Elija según cómo actúa la carga sobre su estructura:</b>"
+            "<br><br>"
+            "<b>Plano (Q4) — cap. 01.01.02, 2 GDL por nodo</b><br>"
+            "La carga actúa DENTRO del plano de la pieza. Muros, vigas de "
+            "gran peralte, chapas. Pestañas «Plano: paso a paso», «editor» "
+            "y «vista 3D» — son tres vistas del mismo modelo."
+            "<br><br>"
+            "<b>Placa — cap. 01.01.03, 3 GDL por nodo</b><br>"
+            "La carga actúa PERPENDICULAR al plano y la pieza es delgada. "
+            "Losas, tapas. Teoría de Kirchhoff; elementos rectangulares."
+            "<br><br>"
+            "<b>Lámina (flat shell) — cap. 01.01.04, 5 GDL por nodo</b><br>"
+            "La carga actúa en AMBAS direcciones a la vez. Es la suma "
+            "exacta de los dos anteriores: membrana + flexión."
+            "<br><br>"
+            "<b>Pórtico (frame 3D) — cap. 01.02, 6 GDL por nodo</b><br>"
+            "La estructura es de BARRAS, no de área. Vigas, columnas, "
+            "pórticos planos y espaciales, con diagramas de fuerzas "
+            "internas."
+            "<br><br>"
+            "Para comprobar que la formulación cumple los criterios de "
+            "convergencia del cap. 01.01.08, use "
+            "<i>Herramientas → Estudio de convergencia</i>, pestaña "
+            "«Criterios de la formulación»."
+        )
 
     def show_convergence_dialog(self) -> None:
         from .convergence_dialog import ConvergenceDialog
@@ -473,13 +516,31 @@ class MainWindow(QMainWindow):
         # Tabs (con iconos vectoriales)
         self.tabs = QTabWidget()
         self.tabs.setIconSize(QSize(18, 18))
-        self.tabs.addTab(self._build_step_tab(), icon(ICON_TAB_STEPS), "Paso a paso")
-        self.tabs.addTab(self._build_editor_tab(), icon(ICON_TAB_EDITOR), "Editor gráfico")
-        self.tabs.addTab(self._build_view3d_tab(), icon(ICON_TAB_EDITOR), "Vista 3D")
+        # El aplicativo cubre CUATRO modelos del documento. Las tres primeras
+        # pestañas son vistas distintas del MISMO modelo plano (Q4); las tres
+        # siguientes son modelos independientes. Los nombres y los tooltips
+        # lo dicen explícitamente para que no haya que adivinarlo.
+        self.tabs.addTab(self._build_step_tab(), icon(ICON_TAB_STEPS),
+                         "Plano: paso a paso")
+        self.tabs.addTab(self._build_editor_tab(), icon(ICON_TAB_EDITOR),
+                         "Plano: editor")
+        self.tabs.addTab(self._build_view3d_tab(), icon(ICON_TAB_EDITOR),
+                         "Plano: vista 3D")
         # Modo PLACA (flexión): pestaña autocontenida, familia paralela al Q4
         from .plate_mode import PlateModeWidget
         self.plate_mode = PlateModeWidget()
-        self.tabs.addTab(self.plate_mode, icon("fa5s.layer-group"), "Placa (flexión)")
+        self.tabs.addTab(self.plate_mode, icon("fa5s.layer-group"),
+                         "Placa (flexión)")
+        # Modo LÁMINA (flat shell): membrana + flexión, cap. 01.01.04
+        from .shell_mode import ShellModeWidget
+        self.shell_mode = ShellModeWidget()
+        self.tabs.addTab(self.shell_mode, icon("fa5s.cubes"), "Lámina (shell)")
+        # Modo PÓRTICO (frame 3D): elementos de barra, cap. 01.02
+        from .frame_mode import FrameModeWidget
+        self.frame_mode = FrameModeWidget()
+        self.tabs.addTab(self.frame_mode, icon("fa5s.project-diagram"),
+                         "Pórtico (frame 3D)")
+        self._set_tab_tooltips()
         central_layout.addWidget(self.tabs, 1)
 
         self.setCentralWidget(central)
@@ -662,6 +723,53 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(
                 "Editor: necesita al menos 1 nodo y 1 elemento para calcular"
             )
+
+    def _set_tab_tooltips(self) -> None:
+        """Explica en cada pestaña qué elemento y qué capítulo usa.
+
+        Con cuatro modelos conviviendo, el nombre de la pestaña no alcanza:
+        el tooltip dice qué elemento resuelve, cuántos GDL tiene por nodo y
+        para qué tipo de estructura sirve.
+        """
+        tips = [
+            ("Plano: paso a paso",
+             "<b>Modelo PLANO (elemento Q4)</b> — cap. 01.01.02<br>"
+             "2 GDL por nodo (u, v). Estructuras cargadas en su propio "
+             "plano: muros, vigas de gran peralte, chapas.<br><br>"
+             "Esta pestaña recorre los 15 pasos del cálculo con todas las "
+             "matrices intermedias."),
+            ("Plano: editor",
+             "<b>Modelo PLANO (elemento Q4)</b> — cap. 01.01.02<br>"
+             "Editor gráfico del MISMO modelo de la pestaña anterior: "
+             "dibujar nodos, elementos, apoyos y cargas."),
+            ("Plano: vista 3D",
+             "<b>Modelo PLANO (elemento Q4)</b> — cap. 01.01.02<br>"
+             "Vista tridimensional del MISMO modelo, útil para ver la "
+             "deformada y los mapas de esfuerzos con relieve."),
+            ("Placa (flexión)",
+             "<b>Modelo PLACA (elemento plate de 12 GDL)</b> — cap. 01.01.03<br>"
+             "3 GDL por nodo (w, θx, θy). Teoría de Kirchhoff: losas "
+             "delgadas cargadas perpendicularmente a su plano.<br><br>"
+             "Solo elementos rectangulares (lo exige la formulación)."),
+            ("Lámina (shell)",
+             "<b>Modelo LÁMINA (flat shell de 20 GDL)</b> — cap. 01.01.04<br>"
+             "5 GDL por nodo (u, v, w, θx, θy). Superpone el "
+             "comportamiento de membrana (plano) con el de flexión "
+             "(placa) en un solo elemento.<br><br>"
+             "Úselo cuando la estructura recibe carga en su plano Y "
+             "perpendicular a él."),
+            ("Pórtico (frame 3D)",
+             "<b>Modelo PÓRTICO (elemento frame de 12 GDL)</b> — cap. 01.02<br>"
+             "6 GDL por nodo (3 desplazamientos y 3 giros). Estructuras "
+             "de barras: vigas, columnas, pórticos planos y espaciales.<br><br>"
+             "Incluye diagramas de fuerzas internas por elemento."),
+        ]
+        for i in range(self.tabs.count()):
+            titulo = self.tabs.tabText(i)
+            for nombre, tip in tips:
+                if titulo == nombre:
+                    self.tabs.setTabToolTip(i, tip)
+                    break
 
     # ---------------- Pestaña 1: paso a paso ----------------
     def _build_step_tab(self) -> QWidget:

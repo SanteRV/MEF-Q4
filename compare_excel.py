@@ -83,7 +83,7 @@ def main():
 
     print("=" * 80)
     print("  VERIFICACION FINAL: Excel PLANE.xlsx  vs  Programa MEF Q4 (Python)")
-    print("  (Convención de nodos del programa: --, +-, ++, -+ — la de la guía)")
+    print("  (Convención de nodos del programa: --, +-, ++, -+ — la del documento)")
     print("=" * 80)
 
     # ===== 1. Datos de entrada =====

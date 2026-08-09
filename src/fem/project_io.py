@@ -23,6 +23,8 @@ def structure_to_dict(structure: Structure, description: str = "") -> dict:
                 "y": float(n.y),
                 "restraint_x": bool(n.restraint_x),
                 "restraint_y": bool(n.restraint_y),
+                "prescribed_x": float(n.prescribed_x),
+                "prescribed_y": float(n.prescribed_y),
                 "load_x": float(n.load_x),
                 "load_y": float(n.load_y),
             }
@@ -53,6 +55,8 @@ def dict_to_structure(data: dict) -> Structure:
             y=float(nd["y"]),
             restraint_x=bool(nd.get("restraint_x", False)),
             restraint_y=bool(nd.get("restraint_y", False)),
+            prescribed_x=float(nd.get("prescribed_x", 0.0)),
+            prescribed_y=float(nd.get("prescribed_y", 0.0)),
             load_x=float(nd.get("load_x", 0.0)),
             load_y=float(nd.get("load_y", 0.0)),
         )

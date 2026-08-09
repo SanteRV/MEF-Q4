@@ -1,7 +1,15 @@
-"""Diálogo de estudio de convergencia MEF.
+"""Diálogo de convergencia MEF — cap. 01.01.08 del documento teórico.
 
-Resuelve el mismo problema con mallas progresivamente más finas y compara
-los resultados (σ_max, u_max, error relativo) en función del número de GDL.
+Tiene dos pestañas, una por cada mitad del capítulo:
+
+    Refinamiento de malla (01.01.08.01): resuelve el mismo problema con
+    mallas progresivamente más finas y compara σ_max, u_max y el error
+    relativo en función del número de GDL.
+
+    Criterios de la formulación (01.01.08.02 a 01.01.08.05): cuerpo rígido,
+    deformación constante, autovalores de K^e y prueba del parche. Son
+    propiedades del elemento, no del modelo dibujado, y por eso se ejecutan
+    sobre elementos y parches de referencia.
 """
 from __future__ import annotations
 import time
@@ -16,14 +24,15 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSpinBox,
     QTableView, QHeaderView, QGroupBox, QMessageBox, QFileDialog, QDialogButtonBox,
-    QFormLayout, QCheckBox, QLineEdit,
+    QFormLayout, QCheckBox, QLineEdit, QTabWidget, QWidget,
 )
-from PySide6.QtGui import QStandardItemModel, QStandardItem
+from PySide6.QtGui import QStandardItemModel, QStandardItem, QColor
 
 from ..fem.node import Node
 from ..fem.q4_element import Q4Element
 from ..fem.structure import Structure
 from ..fem.solver import solve
+from ..fem import verification
 
 
 def _generate_rect_mesh(xmin, xmax, ymin, ymax, nx, ny,
@@ -100,9 +109,22 @@ class ConvergenceDialog(QDialog):
         self._build_ui()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
+        root = QVBoxLayout(self)
+        self.tabs = QTabWidget()
+        root.addWidget(self.tabs, 1)
+        self.tabs.addTab(self._build_mesh_tab(), "Refinamiento de malla")
+        self.tabs.addTab(self._build_criteria_tab(),
+                         "Criterios de la formulación")
+        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb.rejected.connect(self.reject)
+        root.addWidget(bb)
+
+    # ------------------------------------------------ pestaña 1: malla
+    def _build_mesh_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
         # ===== Parámetros de la corrida =====
-        params = QGroupBox("Configuración del estudio")
+        params = QGroupBox("Configuración del estudio (cap. 01.01.08.01)")
         form = QFormLayout(params)
 
         # Dimensión de la placa
@@ -149,10 +171,97 @@ class ConvergenceDialog(QDialog):
         results_split.addWidget(self.canvas, 1)
 
         layout.addLayout(results_split, 1)
+        return tab
 
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        layout.addWidget(bb)
+    # ------------------------------------------ pestaña 2: criterios
+    def _build_criteria_tab(self) -> QWidget:
+        """Comprobaciones de los capítulos 01.01.08.02 a 01.01.08.05."""
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+
+        info = QLabel(
+            "El documento exige que la formulación cumpla cuatro criterios "
+            "antes de confiar en el refinamiento de malla:\n"
+            "  • Cuerpo rígido (01.01.08.02): un movimiento rígido no debe "
+            "generar deformaciones — K·q = 0.\n"
+            "  • Deformación constante (01.01.08.03): un estado uniforme debe "
+            "reproducirse exacto en todo el elemento.\n"
+            "  • Compatibilidad (01.01.08.04): el plane es conforme; el plate "
+            "de 12 GDL es no conforme y por eso depende de la prueba del "
+            "parche con malla rectangular.\n"
+            "  • Prueba del parche (01.01.08.05): un parche con nodo interior "
+            "sometido a un estado constante en el contorno debe reproducirlo "
+            "exactamente. Se verifican antes los autovalores de K^e (deben "
+            "aparecer 3 modos rígidos y ningún modo espurio).\n"
+            "\n"
+            "Son propiedades del ELEMENTO, no del modelo dibujado: se ejecutan "
+            "sobre un Q4 distorsionado y un plate rectangular de referencia, "
+            "usando el material del proyecto."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #444; font-size: 11px;")
+        layout.addWidget(info)
+
+        fila = QHBoxLayout()
+        self.btn_criterios = QPushButton("Ejecutar comprobaciones")
+        self.btn_criterios.setProperty("primary", True)
+        self.btn_criterios.clicked.connect(self._run_criteria)
+        fila.addWidget(self.btn_criterios)
+        self.lbl_criterios = QLabel("Sin ejecutar.")
+        fila.addWidget(self.lbl_criterios, 1)
+        layout.addLayout(fila)
+
+        self.table_criterios = QTableView()
+        self.table_criterios.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeToContents)
+        self.table_criterios.horizontalHeader().setStretchLastSection(True)
+        layout.addWidget(self.table_criterios, 1)
+        return tab
+
+    def _run_criteria(self):
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtGui import QCursor
+        from PySide6.QtCore import Qt as _Qt
+
+        self.lbl_criterios.setText("Ejecutando...")
+        QApplication.setOverrideCursor(QCursor(_Qt.CursorShape.WaitCursor))
+        QApplication.processEvents()
+        try:
+            checks = verification.run_all(
+                E=self.E, nu=self.nu, t=self.t, plane_stress=self.plane_stress)
+        except Exception as e:
+            self.lbl_criterios.setText("Error al ejecutar las comprobaciones.")
+            QMessageBox.critical(self, "Error", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        cols = ["Capítulo", "Comprobación", "Resultado", "Error medido",
+                "Tolerancia", "Detalle"]
+        model = QStandardItemModel(len(checks), len(cols))
+        model.setHorizontalHeaderLabels(cols)
+        for r, c in enumerate(checks):
+            valores = [
+                c.criterio, c.nombre, c.estado,
+                f"{c.valor:.3e}", f"{c.tolerancia:.3e}", c.detalle,
+            ]
+            for col, txt in enumerate(valores):
+                item = QStandardItem(txt)
+                item.setEditable(False)
+                if col == 2:
+                    item.setForeground(
+                        QColor("#1B7F3B") if c.ok else QColor("#B00020"))
+                model.setItem(r, col, item)
+        self.table_criterios.setModel(model)
+
+        fallidos = [c for c in checks if not c.ok]
+        if fallidos:
+            self.lbl_criterios.setText(
+                f"{len(checks) - len(fallidos)} de {len(checks)} cumplen — "
+                f"{len(fallidos)} sin cumplir.")
+        else:
+            self.lbl_criterios.setText(
+                f"Los {len(checks)} criterios del cap. 01.01.08 se cumplen.")
 
     def _parse_range(self, txt: str) -> tuple[float, float]:
         parts = txt.replace(",", ";").split(";")

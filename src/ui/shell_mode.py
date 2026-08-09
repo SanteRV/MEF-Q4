@@ -1,18 +1,20 @@
-"""Modo PLACA (flexión) — pestaña autocontenida del aplicativo.
+"""Modo LÁMINA (flat shell) — pestaña autocontenida del aplicativo.
 
-Para qué sirve: es la interfaz del modelo PLATE (cap. 01.01.03 del
-documento teórico). El usuario define una placa rectangular a×b, su malla,
-material, carga transversal y tipo de apoyo; el programa resuelve con el
-elemento rectangular de 12 GDL (Kirchhoff) y muestra:
+Para qué sirve: es la interfaz del modelo SHELL (cap. 01.01.04 del documento
+teórico). El usuario define una lámina rectangular a×b, su malla, material,
+carga transversal, carga en el plano y tipo de apoyo; el programa resuelve
+con el elemento flat shell de 20 GDL (membrana + flexión desacopladas) y
+muestra:
 
-    - la DEFORMADA w en una vista 3D (superficie coloreada, con escala),
-    - un resumen con w_max, comparación con la solución analítica de
-      Timoshenko (cuando la placa es cuadrada), momentos y tiempos,
-    - las matrices didácticas del primer elemento: C (ec. 1.3.14),
-      K^e (ec. 1.3.18) y Q en el centro (ec. 1.3.16).
+    - la deformada en una vista 3D, con los desplazamientos en el plano
+      (u, v) y fuera del plano (w) superpuestos,
+    - un resumen con u_max, w_max, momentos y esfuerzos de la fibra
+      superior e inferior (membrana + flexión),
+    - las matrices didácticas del primer elemento: los dos bloques de la
+      ec. 1.4.10, la K^e completa de 20×20 y la B de 6×20 (ec. 1.4.11).
 
-Arquitectura: familia paralela al modo plane — este módulo NO toca el
-flujo Q4 existente; la ventana principal solo agrega la pestaña.
+Arquitectura: familia paralela a los modos plane y placa — este módulo NO
+toca el flujo de los otros dos; la ventana principal solo agrega la pestaña.
 """
 from __future__ import annotations
 import time
@@ -20,7 +22,9 @@ from typing import Optional
 
 import numpy as np
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor, QVector3D, QFont, QCursor, QStandardItemModel, QStandardItem
+from PySide6.QtGui import (
+    QColor, QVector3D, QFont, QCursor, QStandardItemModel, QStandardItem,
+)
 from PySide6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QFormLayout, QGroupBox, QLineEdit,
     QComboBox, QPushButton, QLabel, QSlider, QTabWidget, QTableView,
@@ -28,10 +32,10 @@ from PySide6.QtWidgets import (
 )
 import pyqtgraph.opengl as gl
 
-from ..fem.node_plate import NodePlate
-from ..fem.plate_element import PlateElement
-from ..fem.structure_plate import StructurePlate
-from ..fem.solver_plate import solve_plate, FEMResultPlate
+from ..fem.node_shell import NodeShell
+from ..fem.shell_element import ShellElement
+from ..fem.structure_shell import StructureShell
+from ..fem.solver_shell import solve_shell, FEMResultShell
 
 
 # ---------------------------------------------------------------- helpers
@@ -60,13 +64,13 @@ def _matrix_model(arr: np.ndarray) -> QStandardItemModel:
 
 
 # ---------------------------------------------------------------- vista 3D
-class PlateCanvas3D(gl.GLViewWidget):
-    """Vista 3D de la deformada w de la placa (superficie coloreada).
+class ShellCanvas3D(gl.GLViewWidget):
+    """Vista 3D de la lámina deformada.
 
-    Para qué sirve: en el modo placa el desplazamiento SÍ sale del plano
-    (w en Z), así que la vista 3D muestra la física real: la placa
-    hundiéndose bajo la carga. Colores: azul = mayor descenso, rojo =
-    mayor ascenso, gris = sin desplazamiento.
+    A diferencia del modo placa, aquí la superficie se dibuja en la posición
+    (x + u, y + v, w): el flat shell mueve los nodos también DENTRO del
+    plano, y verlo es lo que distingue el comportamiento de membrana del de
+    flexión.
     """
 
     def __init__(self, parent: Optional[QWidget] = None):
@@ -75,7 +79,6 @@ class PlateCanvas3D(gl.GLViewWidget):
         self.setCameraPosition(distance=3.0, elevation=32, azimuth=-60)
         self._dyn_items: list = []
 
-        # Grilla base y ejes etiquetados (X rojo, Y verde, Z azul)
         grid = gl.GLGridItem()
         grid.setSize(x=4, y=4)
         grid.setSpacing(x=0.5, y=0.5)
@@ -101,12 +104,14 @@ class PlateCanvas3D(gl.GLViewWidget):
             except Exception:
                 pass
 
-    def show_solution(self, xs: np.ndarray, ys: np.ndarray,
-                      W: np.ndarray, scale: float) -> None:
-        """Dibuja la superficie deformada w (amplificada por 'scale').
+    def show_solution(self, X: np.ndarray, Y: np.ndarray, W: np.ndarray,
+                      U: np.ndarray, V: np.ndarray, scale: float,
+                      x_lim: tuple[float, float],
+                      y_lim: tuple[float, float]) -> None:
+        """Dibuja la lámina deformada amplificada por 'scale'.
 
-        xs (nx+1,), ys (ny+1,), W (nx+1, ny+1) con W[i, j] = w en el nodo
-        de la columna i (x) y la fila j (y).
+        X, Y son las coordenadas sin deformar (nx+1, ny+1); U, V, W los
+        desplazamientos nodales en las tres direcciones.
         """
         for it in self._dyn_items:
             try:
@@ -115,43 +120,48 @@ class PlateCanvas3D(gl.GLViewWidget):
                 pass
         self._dyn_items.clear()
 
-        Z = W * scale
+        Xd = X + U * scale
+        Yd = Y + V * scale
+        Zd = W * scale
 
-        # Colores por valor de w: azul (minimo) -> gris (0) -> rojo (maximo)
+        # Color por desplazamiento total: azul = descenso, rojo = ascenso
         w_abs = float(np.max(np.abs(W))) or 1.0
-        norm = W / w_abs                       # -1 .. 1
+        norm = W / w_abs
         colors = np.zeros((*W.shape, 4))
         neg = norm < 0
-        # tono azul proporcional al descenso, rojo al ascenso
         colors[..., 0] = np.where(neg, 0.55 * (1 + norm), 0.55 + 0.45 * norm)
         colors[..., 1] = 0.60 * (1 - np.abs(norm))
         colors[..., 2] = np.where(neg, 0.55 + 0.45 * (-norm), 0.55 * (1 - norm))
         colors[..., 3] = 1.0
 
-        surf = gl.GLSurfacePlotItem(x=xs, y=ys, z=Z, colors=colors,
-                                    shader=None, smooth=True)
-        surf.setGLOptions("opaque")
-        self.addItem(surf)
-        self._dyn_items.append(surf)
-
-        # Malla de lineas sobre la superficie (para ver los elementos)
-        segs = []
-        for i in range(len(xs)):
-            for j in range(len(ys) - 1):
-                segs.append([xs[i], ys[j], Z[i, j]])
-                segs.append([xs[i], ys[j + 1], Z[i, j + 1]])
-        for j in range(len(ys)):
-            for i in range(len(xs) - 1):
-                segs.append([xs[i], ys[j], Z[i, j]])
-                segs.append([xs[i + 1], ys[j], Z[i + 1, j]])
-        ln = gl.GLLinePlotItem(pos=np.array(segs), color=(0.25, 0.28, 0.33, 0.55),
-                               width=1.0, antialias=True, mode="lines")
+        # GLSurfacePlotItem exige grillas regulares; con desplazamiento en el
+        # plano la malla deja de serlo, asi que se dibuja como mallado de
+        # lineas sobre la posicion deformada real.
+        nx, ny = W.shape
+        caras = []
+        for i in range(nx):
+            for j in range(ny - 1):
+                caras.append([Xd[i, j], Yd[i, j], Zd[i, j]])
+                caras.append([Xd[i, j + 1], Yd[i, j + 1], Zd[i, j + 1]])
+        for j in range(ny):
+            for i in range(nx - 1):
+                caras.append([Xd[i, j], Yd[i, j], Zd[i, j]])
+                caras.append([Xd[i + 1, j], Yd[i + 1, j], Zd[i + 1, j]])
+        ln = gl.GLLinePlotItem(pos=np.array(caras),
+                               color=(0.20, 0.30, 0.55, 0.85),
+                               width=1.4, antialias=True, mode="lines")
         self.addItem(ln)
         self._dyn_items.append(ln)
 
-        # Contorno de la placa SIN deformar (referencia en z = 0)
-        x0, x1 = float(xs[0]), float(xs[-1])
-        y0, y1 = float(ys[0]), float(ys[-1])
+        pts = gl.GLScatterPlotItem(
+            pos=np.column_stack([Xd.ravel(), Yd.ravel(), Zd.ravel()]),
+            color=colors.reshape(-1, 4), size=6.0, pxMode=True)
+        self.addItem(pts)
+        self._dyn_items.append(pts)
+
+        # Contorno sin deformar (referencia en z = 0)
+        x0, x1 = x_lim
+        y0, y1 = y_lim
         borde = np.array([
             [x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0], [x0, y0, 0],
         ])
@@ -160,7 +170,6 @@ class PlateCanvas3D(gl.GLViewWidget):
         self.addItem(ref)
         self._dyn_items.append(ref)
 
-        # Encuadre
         cx, cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
         size = max(x1 - x0, y1 - y0)
         self.opts["center"] = QVector3D(cx, cy, 0.0)
@@ -170,15 +179,15 @@ class PlateCanvas3D(gl.GLViewWidget):
 
 
 # ---------------------------------------------------------------- widget
-class PlateModeWidget(QWidget):
-    """Pestaña "Placa (flexión)": entradas, solución, resumen y matrices."""
+class ShellModeWidget(QWidget):
+    """Pestaña "Lámina (shell)": entradas, solución, resumen y matrices."""
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self._resultado: Optional[FEMResultPlate] = None
-        self._W: Optional[np.ndarray] = None       # w por nodo, grilla (nx+1, ny+1)
-        self._xs: Optional[np.ndarray] = None
-        self._ys: Optional[np.ndarray] = None
+        self._resultado: Optional[FEMResultShell] = None
+        self._structure: Optional[StructureShell] = None
+        self._grids: Optional[tuple] = None      # (X, Y, U, V, W)
+        self._lims: tuple = ((0.0, 1.0), (0.0, 1.0))
         self._escala_auto: float = 1.0
         self._build_ui()
 
@@ -188,22 +197,20 @@ class PlateModeWidget(QWidget):
         root.setContentsMargins(8, 8, 8, 8)
         root.setSpacing(8)
 
-        # ===== Panel izquierdo: entradas + resultados =====
         left = QWidget()
-        left.setMaximumWidth(380)
+        left.setMaximumWidth(400)
         col = QVBoxLayout(left)
         col.setSpacing(8)
 
-        gb_geo = QGroupBox("Placa rectangular (Kirchhoff, 12 GDL por elemento)")
-        form = QFormLayout(gb_geo)
-        self.ed_a = QLineEdit("1.0")
+        gb = QGroupBox("Lámina rectangular (flat shell, 20 GDL por elemento)")
+        form = QFormLayout(gb)
+        self.ed_a = QLineEdit("2.0")
         self.ed_b = QLineEdit("1.0")
         self.ed_t = QLineEdit("0.01")
         self.ed_E = QLineEdit("2.1e11")
         self.ed_nu = QLineEdit("0.3")
         self.ed_nx = QLineEdit("8")
-        self.ed_ny = QLineEdit("8")
-        self.ed_q = QLineEdit("-1000.0")
+        self.ed_ny = QLineEdit("4")
         form.addRow("Lado a en X (m):", self.ed_a)
         form.addRow("Lado b en Y (m):", self.ed_b)
         form.addRow("Espesor t (m):", self.ed_t)
@@ -211,49 +218,52 @@ class PlateModeWidget(QWidget):
         form.addRow("ν (Poisson):", self.ed_nu)
         form.addRow("Malla Nx:", self.ed_nx)
         form.addRow("Malla Ny:", self.ed_ny)
-        form.addRow("Carga q (N/m², − hacia abajo):", self.ed_q)
-        # Reparto de la carga de superficie a los nodos: los dos casos que
-        # desarrolla el documento (ec. 1.3.19 y 1.3.20).
+        col.addWidget(gb)
+
+        gb_carga = QGroupBox("Cargas")
+        fc = QFormLayout(gb_carga)
+        self.ed_q = QLineEdit("-1000.0")
+        self.ed_fx = QLineEdit("0.0")
+        self.ed_fy = QLineEdit("0.0")
+        fc.addRow("q transversal (N/m², − hacia abajo):", self.ed_q)
+        fc.addRow("Fx total en el borde x = a (N):", self.ed_fx)
+        fc.addRow("Fy total en el borde x = a (N):", self.ed_fy)
         self.cmb_carga = QComboBox()
         self.cmb_carga.addItems([
             "Directo a los nodos, q·A/4 (ec. 1.3.19)",
             "Vigas en 1 dirección, luz en Y (ec. 1.3.20)",
             "Vigas en 1 dirección, luz en X (ec. 1.3.20)",
         ])
-        self.cmb_carga.setToolTip(
-            "1er caso: la carga se divide en partes iguales entre los 4 nodos.\n"
-            "2do caso: la placa apoya sobre vigas en una sola dirección, "
-            "y la carga llega a los nodos como fuerza y momento de "
-            "empotramiento perfecto."
-        )
-        form.addRow("Reparto de la carga:", self.cmb_carga)
+        fc.addRow("Reparto de q:", self.cmb_carga)
         self.cmb_bc = QComboBox()
         self.cmb_bc.addItems([
             "Simplemente apoyada (4 bordes)",
             "Empotrada (4 bordes)",
+            "Voladizo (empotrada en x = 0)",
         ])
-        form.addRow("Apoyo:", self.cmb_bc)
-        col.addWidget(gb_geo)
+        fc.addRow("Apoyo:", self.cmb_bc)
+        col.addWidget(gb_carga)
 
-        self.btn_calc = QPushButton("Calcular placa")
+        self.btn_calc = QPushButton("Calcular lámina")
         self.btn_calc.setProperty("primary", True)
         self.btn_calc.clicked.connect(self.calculate)
         col.addWidget(self.btn_calc)
 
-        self.lbl_status = QLabel("Defina la placa y presione Calcular.")
+        self.lbl_status = QLabel(
+            "Defina la lámina y presione Calcular. El flat shell superpone "
+            "el comportamiento de membrana (plane) con el de flexión (plate)."
+        )
         self.lbl_status.setWordWrap(True)
         self.lbl_status.setStyleSheet("color: #555; font-size: 11px;")
         col.addWidget(self.lbl_status)
 
-        # Resumen + matrices en pestañas
         self.tabs_res = QTabWidget()
         self.tbl_resumen = QTableView()
         self.tbl_resumen.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Stretch)
         self.tabs_res.addTab(self.tbl_resumen, "Resumen")
 
-        # Resultados nodales: sin esta tabla el usuario solo podía leer el
-        # máximo global, no el valor en un punto concreto de la placa.
+        # Resultados nodales: los 5 GDL resueltos y la reacción del apoyo
         self.tbl_nodos = QTableView()
         self.tbl_nodos.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.ResizeToContents)
@@ -263,9 +273,11 @@ class PlateModeWidget(QWidget):
         mv = QVBoxLayout(mat_tab)
         self.cmb_matriz = QComboBox()
         self.cmb_matriz.addItems([
-            "C (12×12) del elemento 1 (ec. 1.3.14)",
-            "K^e (12×12) del elemento 1 (ec. 1.3.18)",
-            "Q (3×12) en el centro del elemento 1 (ec. 1.3.16)",
+            "K^e (20×20) del elemento 1 — orden nodal",
+            "Bloque K_plane (8×8) — ec. 1.4.10",
+            "Bloque K_plate (12×12) — ec. 1.4.10",
+            "B (6×20) en el centro, z = t/2 — ec. 1.4.11",
+            "D (6×6) por bloques",
         ])
         self.cmb_matriz.currentIndexChanged.connect(self._update_matrix_view)
         mv.addWidget(self.cmb_matriz)
@@ -276,24 +288,23 @@ class PlateModeWidget(QWidget):
 
         root.addWidget(left, 0)
 
-        # ===== Panel derecho: vista 3D + escala =====
         right = QWidget()
         rcol = QVBoxLayout(right)
-        self.canvas = PlateCanvas3D()
+        self.canvas = ShellCanvas3D()
         rcol.addWidget(self.canvas, 1)
         fila = QHBoxLayout()
         fila.addWidget(QLabel("Escala de la deformada:"))
         self.sl_escala = QSlider(Qt.Orientation.Horizontal)
-        self.sl_escala.setRange(1, 300)      # % de la escala automatica
+        self.sl_escala.setRange(1, 300)
         self.sl_escala.setValue(100)
-        self.sl_escala.valueChanged.connect(self._redraw_surface)
+        self.sl_escala.valueChanged.connect(self._redraw)
         fila.addWidget(self.sl_escala, 1)
         self.lbl_escala = QLabel("x auto")
         fila.addWidget(self.lbl_escala)
         rcol.addLayout(fila)
         root.addWidget(right, 1)
 
-    # ------------------------------------------------------------ calculo
+    # ------------------------------------------------------------ cálculo
     def _leer_float(self, ed: QLineEdit, nombre: str) -> float:
         try:
             return float(ed.text().strip())
@@ -308,7 +319,9 @@ class PlateModeWidget(QWidget):
             t = self._leer_float(self.ed_t, "Espesor t")
             E = self._leer_float(self.ed_E, "E")
             nu = self._leer_float(self.ed_nu, "ν")
-            q = self._leer_float(self.ed_q, "Carga q")
+            q = self._leer_float(self.ed_q, "q transversal")
+            fx = self._leer_float(self.ed_fx, "Fx")
+            fy = self._leer_float(self.ed_fy, "Fy")
             nx = int(self._leer_float(self.ed_nx, "Nx"))
             ny = int(self._leer_float(self.ed_ny, "Ny"))
             if a <= 0 or b <= 0 or t <= 0 or E <= 0 or nx < 1 or ny < 1:
@@ -326,8 +339,9 @@ class PlateModeWidget(QWidget):
         try:
             s = self._make_mesh(a, b, nx, ny, E, nu, t)
             self._apply_bc(s, a, b, self.cmb_bc.currentIndex())
+            self._apply_edge_load(s, a, fx, fy)
             caso = ("nodos", "vigas_y", "vigas_x")[self.cmb_carga.currentIndex()]
-            res = solve_plate(s, q_uniform=q, load_case=caso)
+            res = solve_shell(s, q_uniform=q, load_case=caso)
         except Exception as e:
             self.lbl_status.setText("Error en el cálculo.")
             QMessageBox.critical(self, "Error en el cálculo", str(e))
@@ -339,63 +353,57 @@ class PlateModeWidget(QWidget):
         self._resultado = res
         self._structure = s
 
-        # Grilla de w para la superficie 3D: nodo (i, j) -> id = j*(nx+1)+i
-        xs = np.linspace(0.0, a, nx + 1)
-        ys = np.linspace(0.0, b, ny + 1)
+        # Grillas de desplazamiento: nodo (i, j) -> id = j*(nx+1)+i
+        X = np.zeros((nx + 1, ny + 1))
+        Y = np.zeros((nx + 1, ny + 1))
+        U = np.zeros((nx + 1, ny + 1))
+        V = np.zeros((nx + 1, ny + 1))
         W = np.zeros((nx + 1, ny + 1))
         for j in range(ny + 1):
             for i in range(nx + 1):
-                nid = j * (nx + 1) + i
-                W[i, j] = res.displacements[3 * nid]
-        self._xs, self._ys, self._W = xs, ys, W
+                n = s.nodes[j * (nx + 1) + i]
+                d = res.displacements[list(n.dofs)]
+                X[i, j], Y[i, j] = n.x, n.y
+                U[i, j], V[i, j], W[i, j] = d[0], d[1], d[2]
+        self._grids = (X, Y, U, V, W)
+        self._lims = ((0.0, a), (0.0, b))
 
-        # Escala automatica: el maximo |w| se dibuja como 20 % del lado mayor
-        w_max_abs = float(np.max(np.abs(W)))
-        self._escala_auto = (0.2 * max(a, b) / w_max_abs) if w_max_abs > 0 else 1.0
-        self._redraw_surface()
+        d_max = float(np.max(np.abs(np.stack([U, V, W]))))
+        self._escala_auto = (0.2 * max(a, b) / d_max) if d_max > 0 else 1.0
+        self._redraw()
 
         # ----- resumen -----
-        idx_max = np.unravel_index(np.argmax(np.abs(W)), W.shape)
-        w_max = float(W[idx_max])
-        x_max, y_max = float(xs[idx_max[0]]), float(ys[idx_max[1]])
-
-        # Solucion analitica de Timoshenko (solo placa CUADRADA con q uniforme)
-        D_flex = E * t ** 3 / (12.0 * (1.0 - nu * nu))
-        # El coeficiente de Timoshenko supone presion uniforme repartida a los
-        # nodos (1er caso); con el reparto a vigas la referencia no aplica.
-        alfa = None
-        if abs(a - b) < 1e-12 and caso == "nodos":
-            alfa = 0.00406 if self.cmb_bc.currentIndex() == 0 else 0.00126
-        filas = [
-            ("w máximo FEM (m)", _fmt(w_max)),
-            ("Posición de w máximo (x, y) m", f"({_fmt(x_max)}, {_fmt(y_max)})"),
-        ]
-        if alfa is not None:
-            w_ref = alfa * q * a ** 4 / D_flex
-            err = abs(w_max - w_ref) / abs(w_ref) * 100.0 if w_ref != 0 else 0.0
-            filas += [
-                ("w analítico (Timoshenko) (m)", _fmt(w_ref)),
-                ("Error vs analítico", f"{err:.2f} %"),
-            ]
-        elif caso != "nodos":
-            filas.append(
-                ("w analítico", "— (la referencia supone reparto q·A/4)"))
-        else:
-            filas.append(("w analítico", "— (solo placa cuadrada)"))
+        w_max = float(W.flat[np.argmax(np.abs(W))])
+        u_max = float(np.max(np.abs(U)))
+        v_max = float(np.max(np.abs(V)))
+        s_top = max(float(np.max(np.abs(er.stress_total_top)))
+                    for er in res.elements)
+        s_bot = max(float(np.max(np.abs(er.stress_total_bottom)))
+                    for er in res.elements)
+        s_mem = max(float(np.max(np.abs(er.stresses_center[:3])))
+                    for er in res.elements)
+        s_flex = max(float(np.max(np.abs(er.stresses_center[3:])))
+                     for er in res.elements)
         M_max = max(float(np.max(np.abs(er.moments_center)))
                     for er in res.elements)
         t_txt = f"{dt * 1000:.0f} ms" if dt < 1.0 else f"{dt:.2f} s"
-        filas += [
+        filas = [
+            ("w máximo (fuera del plano) (m)", _fmt(w_max)),
+            ("|u| máximo (membrana en X) (m)", _fmt(u_max)),
+            ("|v| máximo (membrana en Y) (m)", _fmt(v_max)),
+            ("|σ| máximo de membrana (Pa)", _fmt(s_mem)),
+            ("|σ| máximo de flexión en z = t/2 (Pa)", _fmt(s_flex)),
+            ("|σ| total fibra superior (Pa)", _fmt(s_top)),
+            ("|σ| total fibra inferior (Pa)", _fmt(s_bot)),
             ("Momento máximo |M| centro (N·m/m)", _fmt(M_max)),
-            ("Rigidez a flexión D (N·m)", _fmt(D_flex)),
-            ("Elementos / GDL", f"{len(s.elements)} / {s.n_dofs}"),
+            ("Elementos / nodos / GDL",
+             f"{len(s.elements)} / {len(s.nodes)} / {s.n_dofs}"),
             ("Tiempo de cálculo", t_txt),
         ]
         model = QStandardItemModel(len(filas), 2)
         model.setHorizontalHeaderLabels(["Magnitud", "Valor"])
         for r, (k, v) in enumerate(filas):
-            it_k = QStandardItem(k)
-            it_v = QStandardItem(v)
+            it_k, it_v = QStandardItem(k), QStandardItem(v)
             it_k.setEditable(False)
             it_v.setEditable(False)
             model.setItem(r, 0, it_k)
@@ -405,14 +413,15 @@ class PlateModeWidget(QWidget):
 
         self._update_matrix_view()
         self.lbl_status.setText(
-            f"Cálculo completado en {t_txt} — "
-            f"{len(s.elements)} elementos, {s.n_dofs} GDL."
+            f"Cálculo completado en {t_txt} — {len(s.elements)} elementos, "
+            f"{s.n_dofs} GDL (5 por nodo)."
         )
 
-    def _fill_node_table(self, s: StructurePlate, res: FEMResultPlate) -> None:
-        """Tabla nodo a nodo: posición, GDL resueltos y reacción del apoyo."""
-        cols = ["Nodo", "x (m)", "y (m)", "w (m)", "θx (rad)", "θy (rad)",
-                "Apoyo", "Rz (N)", "Mx (N·m)", "My (N·m)"]
+    def _fill_node_table(self, s: StructureShell, res: FEMResultShell) -> None:
+        """Tabla nodo a nodo: los 5 GDL resueltos y la reacción del apoyo."""
+        cols = ["Nodo", "x (m)", "y (m)", "u (m)", "v (m)", "w (m)",
+                "θx (rad)", "θy (rad)", "Apoyo", "Rx (N)", "Ry (N)", "Rz (N)"]
+        etiquetas = ("u", "v", "w", "θx", "θy")
         model = QStandardItemModel(len(s.nodes), len(cols))
         model.setHorizontalHeaderLabels(cols)
         for r, n in enumerate(s.nodes):
@@ -421,8 +430,8 @@ class PlateModeWidget(QWidget):
             apoyado = any(n.restraints)
             valores = [
                 str(n.id + 1), _fmt(n.x), _fmt(n.y),
-                _fmt(d[0]), _fmt(d[1]), _fmt(d[2]),
-                " ".join(e for e, on in zip(("w", "θx", "θy"), n.restraints)
+                _fmt(d[0]), _fmt(d[1]), _fmt(d[2]), _fmt(d[3]), _fmt(d[4]),
+                " ".join(e for e, on in zip(etiquetas, n.restraints)
                          if on) or "—",
                 _fmt(rc[0]) if apoyado else "—",
                 _fmt(rc[1]) if apoyado else "—",
@@ -440,79 +449,106 @@ class PlateModeWidget(QWidget):
     # ------------------------------------------------------------ helpers
     @staticmethod
     def _make_mesh(a: float, b: float, nx: int, ny: int,
-                   E: float, nu: float, t: float) -> StructurePlate:
-        """Malla nx×ny de elementos plate, nodos CCW desde inferior-izquierda."""
-        s = StructurePlate()
+                   E: float, nu: float, t: float) -> StructureShell:
+        """Malla nx×ny de elementos shell, nodos CCW desde inferior-izquierda."""
+        s = StructureShell()
         dx, dy = a / nx, b / ny
-        node_at: dict[tuple[int, int], NodePlate] = {}
+        at: dict[tuple[int, int], NodeShell] = {}
         nid = 0
         for j in range(ny + 1):
             for i in range(nx + 1):
-                n = NodePlate(id=nid, x=i * dx, y=j * dy)
+                n = NodeShell(id=nid, x=i * dx, y=j * dy)
                 s.add_node(n)
-                node_at[(i, j)] = n
+                at[(i, j)] = n
                 nid += 1
         eid = 0
         for j in range(ny):
             for i in range(nx):
-                s.add_element(PlateElement(
+                s.add_element(ShellElement(
                     id=eid,
-                    nodes=[node_at[(i, j)], node_at[(i + 1, j)],
-                           node_at[(i + 1, j + 1)], node_at[(i, j + 1)]],
+                    nodes=[at[(i, j)], at[(i + 1, j)],
+                           at[(i + 1, j + 1)], at[(i, j + 1)]],
                     E=E, nu=nu, t=t))
                 eid += 1
         return s
 
     @staticmethod
-    def _apply_bc(s: StructurePlate, a: float, b: float, tipo: int) -> None:
-        """Aplica el apoyo elegido en los 4 bordes.
+    def _apply_bc(s: StructureShell, a: float, b: float, tipo: int) -> None:
+        """Aplica el apoyo elegido.
 
-        tipo 0 = simplemente apoyada 'dura' (w = 0; el giro alrededor del
-                 eje normal al borde tambien es 0 porque w = 0 a lo largo
-                 del borde recto).
-        tipo 1 = empotrada (w = θx = θy = 0).
+        tipo 0 = simplemente apoyada en los 4 bordes (w = 0 y el giro
+                 alrededor del eje del borde);
+        tipo 1 = empotrada en los 4 bordes;
+        tipo 2 = voladizo empotrado en x = 0.
+
+        En los tres casos se restringe también la membrana (u, v) en los
+        bordes apoyados: sin ello el bloque de membrana queda sin sujeción
+        y K_ff resulta singular.
         """
         tol = 1e-9
         for n in s.nodes:
-            en_x0 = abs(n.x - 0.0) < tol
+            en_x0 = abs(n.x) < tol
             en_xa = abs(n.x - a) < tol
-            en_y0 = abs(n.y - 0.0) < tol
+            en_y0 = abs(n.y) < tol
             en_yb = abs(n.y - b) < tol
+            if tipo == 2:
+                if en_x0:
+                    n.restraint_u = n.restraint_v = n.restraint_w = True
+                    n.restraint_rx = n.restraint_ry = True
+                continue
             if not (en_x0 or en_xa or en_y0 or en_yb):
                 continue
+            n.restraint_u = n.restraint_v = True
             n.restraint_w = True
             if tipo == 1:
-                n.restraint_rx = True
-                n.restraint_ry = True
+                n.restraint_rx = n.restraint_ry = True
             else:
                 if en_x0 or en_xa:
                     n.restraint_rx = True
                 if en_y0 or en_yb:
                     n.restraint_ry = True
 
-    def _redraw_surface(self) -> None:
-        """Redibuja la superficie con la escala del slider (en % de la auto)."""
-        if self._W is None:
+    @staticmethod
+    def _apply_edge_load(s: StructureShell, a: float,
+                         fx: float, fy: float) -> None:
+        """Reparte la carga en el plano por igual entre los nodos de x = a."""
+        if fx == 0.0 and fy == 0.0:
             return
-        factor = self.sl_escala.value() / 100.0
-        escala = self._escala_auto * factor
+        borde = [n for n in s.nodes if abs(n.x - a) < 1e-9]
+        if not borde:
+            return
+        for n in borde:
+            n.load_fx += fx / len(borde)
+            n.load_fy += fy / len(borde)
+
+    def _redraw(self) -> None:
+        """Redibuja con la escala del slider (en % de la automática)."""
+        if self._grids is None:
+            return
+        X, Y, U, V, W = self._grids
+        escala = self._escala_auto * (self.sl_escala.value() / 100.0)
         self.lbl_escala.setText(f"x {escala:.0f}")
-        self.canvas.show_solution(self._xs, self._ys, self._W, escala)
+        self.canvas.show_solution(X, Y, W, U, V, escala,
+                                  self._lims[0], self._lims[1])
 
     def _update_matrix_view(self) -> None:
         """Muestra la matriz didáctica elegida del primer elemento."""
-        if self._resultado is None or not getattr(self, "_structure", None):
+        if self._resultado is None or self._structure is None:
             return
         el = self._structure.elements[0]
         idx = self.cmb_matriz.currentIndex()
         if idx == 0:
-            arr = el.C_matrix()
-        elif idx == 1:
             arr = el.stiffness_matrix()
-        else:
+        elif idx == 1:
+            arr = el.stiffness_blocks()[0]
+        elif idx == 2:
+            arr = el.stiffness_blocks()[1]
+        elif idx == 3:
             xs = [n.x for n in el.nodes]
             ys = [n.y for n in el.nodes]
-            from ..fem.plate_element import Q_matrix
-            arr = Q_matrix((min(xs) + max(xs)) / 2.0, (min(ys) + max(ys)) / 2.0)
+            arr = el.B_matrix((min(xs) + max(xs)) / 2.0,
+                              (min(ys) + max(ys)) / 2.0, el.t / 2.0)
+        else:
+            arr = el.D_matrix()
         self.tbl_matriz.setModel(_matrix_model(arr))
         self.tbl_matriz.resizeColumnsToContents()

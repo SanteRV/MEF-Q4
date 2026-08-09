@@ -3,8 +3,8 @@
 Para qué sirve: en el elemento plate cada nodo tiene 3 grados de libertad
 (cap. 01.01.03 del documento teórico):
     w   desplazamiento transversal (eje Z, positivo hacia +Z)
-    θx  giro alrededor del eje X  (θx = ∂w/∂y, ec. 3.3)
-    θy  giro alrededor del eje Y  (θy = -∂w/∂x, ec. 3.4)
+    θx  giro alrededor del eje X  (θx = ∂w/∂y, ec. 1.3.3)
+    θy  giro alrededor del eje Y  (θy = -∂w/∂x, ec. 1.3.4)
 
 Es una familia PARALELA a node.py (plane): el modelo plane conserva sus
 nodos de 2 GDL intactos y el plate usa estos de 3 GDL. El futuro elemento
@@ -28,6 +28,12 @@ class NodePlate:
     restraint_w: bool = False     # desplazamiento transversal impedido
     restraint_rx: bool = False    # giro alrededor de X impedido
     restraint_ry: bool = False    # giro alrededor de Y impedido
+    # Valores IMPUESTOS en los GDL restringidos (vector U_c de la ec. 1.6.1).
+    # Con 0 se recupera el apoyo rigido; distintos de 0 permiten modelar
+    # asentamientos o giros conocidos (cap. 01.01.06.03).
+    prescribed_w: float = 0.0     # asentamiento impuesto (m)
+    prescribed_rx: float = 0.0    # giro impuesto alrededor de X (rad)
+    prescribed_ry: float = 0.0    # giro impuesto alrededor de Y (rad)
     # Cargas aplicadas en el nodo
     load_fz: float = 0.0          # fuerza transversal (N, +Z)
     load_mx: float = 0.0          # momento alrededor de X (N.m)
@@ -48,3 +54,8 @@ class NodePlate:
     def loads(self) -> tuple[float, float, float]:
         """Terna (Fz, Mx, My) de cargas nodales para armar el vector F."""
         return (self.load_fz, self.load_mx, self.load_my)
+
+    @property
+    def prescribed(self) -> tuple[float, float, float]:
+        """Terna (w, θx, θy) impuestos — solo se leen en los GDL restringidos."""
+        return (self.prescribed_w, self.prescribed_rx, self.prescribed_ry)

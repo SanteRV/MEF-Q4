@@ -43,7 +43,8 @@ class PropertyInspector(QWidget):
 
     Modos:
       - empty:   "Selecciona un objeto"
-      - node:    muestra/edita x, y, restraint_x, restraint_y, load_x, load_y
+      - node:    muestra/edita x, y, restricciones, desplazamientos impuestos
+                 (U_c de la ec. 1.6.1) y cargas load_x, load_y
       - element: muestra/edita E, nu, t, plane_stress; muestra lista de nodos (read-only)
     """
 
@@ -138,8 +139,8 @@ class PropertyInspector(QWidget):
         self._cb_rx.setChecked(bool(node.restraint_x))
         self._cb_rx.setToolTip(
             "<b>Restricción en X</b><br>"
-            "Si está marcada, el desplazamiento horizontal del nodo es nulo "
-            "(apoyo que impide movimiento en X)."
+            "Si está marcada, el desplazamiento horizontal del nodo es "
+            "CONOCIDO: vale lo indicado en 'ux impuesto' (0 = apoyo rígido)."
         )
         self._cb_rx.stateChanged.connect(
             lambda _s: self._commit_node_bool("restraint_x", self._cb_rx)
@@ -149,11 +150,37 @@ class PropertyInspector(QWidget):
         self._cb_ry.setChecked(bool(node.restraint_y))
         self._cb_ry.setToolTip(
             "<b>Restricción en Y</b><br>"
-            "Si está marcada, el desplazamiento vertical del nodo es nulo "
-            "(apoyo que impide movimiento en Y)."
+            "Si está marcada, el desplazamiento vertical del nodo es "
+            "CONOCIDO: vale lo indicado en 'uy impuesto' (0 = apoyo rígido)."
         )
         self._cb_ry.stateChanged.connect(
             lambda _s: self._commit_node_bool("restraint_y", self._cb_ry)
+        )
+
+        # Desplazamientos impuestos (vector U_c de la ec. 1.6.1). Solo tienen
+        # efecto en el GDL correspondiente si su restricción está marcada.
+        self._ed_ux = self._make_float_edit(
+            node.prescribed_x,
+            tooltip="<b>ux impuesto (m)</b><br>"
+                    "Desplazamiento horizontal CONOCIDO del nodo (vector U_c "
+                    "de la ec. 1.6.1). Solo se aplica si la restricción en X "
+                    "está marcada. 0 = apoyo rígido; distinto de 0 = "
+                    "asentamiento o desplazamiento forzado.",
+        )
+        self._ed_uy = self._make_float_edit(
+            node.prescribed_y,
+            tooltip="<b>uy impuesto (m)</b><br>"
+                    "Desplazamiento vertical CONOCIDO del nodo (vector U_c de "
+                    "la ec. 1.6.1). Solo se aplica si la restricción en Y "
+                    "está marcada. 0 = apoyo rígido.",
+        )
+        self._ed_ux.editingFinished.connect(
+            lambda: self._commit_node_float(
+                "prescribed_x", self._ed_ux, validate=None)
+        )
+        self._ed_uy.editingFinished.connect(
+            lambda: self._commit_node_float(
+                "prescribed_y", self._ed_uy, validate=None)
         )
 
         # Cargas: cualquier float (positivo o negativo).
@@ -180,6 +207,8 @@ class PropertyInspector(QWidget):
         self._form_layout.addRow("y (m):", self._ed_y)
         self._form_layout.addRow("Restricción X:", self._cb_rx)
         self._form_layout.addRow("Restricción Y:", self._cb_ry)
+        self._form_layout.addRow("ux impuesto (m):", self._ed_ux)
+        self._form_layout.addRow("uy impuesto (m):", self._ed_uy)
         self._form_layout.addRow("Fx (N):", self._ed_fx)
         self._form_layout.addRow("Fy (N):", self._ed_fy)
 
