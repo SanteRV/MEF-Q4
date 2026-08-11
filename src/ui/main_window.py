@@ -412,6 +412,19 @@ class MainWindow(QMainWindow):
         archivo.addAction(a_quit)
 
         # ===== Menú Herramientas =====
+        # ===== Menú Ver =====
+        # El paso a paso vive en una ventana aparte (Corrección 2, punto 7):
+        # la ventana principal es para modelar y analizar.
+        ver = menu.addMenu("&Ver")
+        a_didactico = QAction("&Modo didáctico (paso a paso)…", self)
+        a_didactico.setShortcut("Ctrl+D")
+        a_didactico.setToolTip(
+            "Abre la ventana con el desarrollo paso a paso de cada "
+            "formulación: plano (Q4), placa, lámina y pórtico."
+        )
+        a_didactico.triggered.connect(self.show_didactic_window)
+        ver.addAction(a_didactico)
+
         herramientas = menu.addMenu("&Herramientas")
 
         a_conv = QAction("Estudio de &convergencia…", self)
@@ -513,44 +526,61 @@ class MainWindow(QMainWindow):
         # Header banner
         central_layout.addWidget(self._build_header())
 
-        # Tabs (con iconos vectoriales)
-        self.tabs = QTabWidget()
-        self.tabs.setIconSize(QSize(18, 18))
-        # MODELO: la ventana única de trabajo (Corrección 2). Un solo modelo
-        # donde conviven frame, plane, plate y shell. Va primera porque es
-        # el flujo principal del aplicativo.
+        # La ventana principal está dedicada al MODELO (Corrección 2): una
+        # sola vista donde conviven frame, plane, plate y shell. El
+        # desarrollo paso a paso se movió a la ventana didáctica secundaria.
         from .model_mode import ModelModeWidget
         self.model_mode = ModelModeWidget()
-        self.tabs.addTab(self.model_mode, icon("fa5s.drafting-compass"),
-                         "Modelo")
-        # Las pestañas siguientes son los modos DIDÁCTICOS por formulación:
-        # las tres primeras son vistas del mismo modelo plano (Q4), las tres
-        # últimas son modelos independientes por tipo de elemento.
-        self.tabs.addTab(self._build_step_tab(), icon(ICON_TAB_STEPS),
-                         "Plano: paso a paso")
-        self.tabs.addTab(self._build_editor_tab(), icon(ICON_TAB_EDITOR),
-                         "Plano: editor")
-        self.tabs.addTab(self._build_view3d_tab(), icon(ICON_TAB_EDITOR),
-                         "Plano: vista 3D")
-        # Modo PLACA (flexión): pestaña autocontenida, familia paralela al Q4
-        from .plate_mode import PlateModeWidget
-        self.plate_mode = PlateModeWidget()
-        self.tabs.addTab(self.plate_mode, icon("fa5s.layer-group"),
-                         "Placa (flexión)")
-        # Modo LÁMINA (flat shell): membrana + flexión, cap. 01.01.04
-        from .shell_mode import ShellModeWidget
-        self.shell_mode = ShellModeWidget()
-        self.tabs.addTab(self.shell_mode, icon("fa5s.cubes"), "Lámina (shell)")
-        # Modo PÓRTICO (frame 3D): elementos de barra, cap. 01.02
-        from .frame_mode import FrameModeWidget
-        self.frame_mode = FrameModeWidget()
-        self.tabs.addTab(self.frame_mode, icon("fa5s.project-diagram"),
-                         "Pórtico (frame 3D)")
-        self._set_tab_tooltips()
-        central_layout.addWidget(self.tabs, 1)
+        central_layout.addWidget(self.model_mode, 1)
 
         self.setCentralWidget(central)
+
+        # Ventana didáctica: se construye ahora (con los mismos widgets de
+        # siempre) pero permanece oculta hasta que el usuario la abra.
+        self._build_didactic_window()
+
         self.statusBar().showMessage("Listo")
+
+    def _build_didactic_window(self) -> None:
+        """Crea la ventana secundaria con las vistas por formulación."""
+        from .didactic_window import DidacticWindow
+        from .plate_mode import PlateModeWidget
+        from .shell_mode import ShellModeWidget
+        from .frame_mode import FrameModeWidget
+
+        self.didactic_window = DidacticWindow(self)
+        # Las tres primeras son vistas del MISMO modelo plano (Q4)
+        self.didactic_window.add_view(self._build_step_tab(),
+                                      icon(ICON_TAB_STEPS),
+                                      "Plano: paso a paso")
+        self.didactic_window.add_view(self._build_editor_tab(),
+                                      icon(ICON_TAB_EDITOR),
+                                      "Plano: editor")
+        self.didactic_window.add_view(self._build_view3d_tab(),
+                                      icon(ICON_TAB_EDITOR),
+                                      "Plano: vista 3D")
+        # Las tres siguientes son modelos independientes por formulación
+        self.plate_mode = PlateModeWidget()
+        self.didactic_window.add_view(self.plate_mode,
+                                      icon("fa5s.layer-group"),
+                                      "Placa (flexión)")
+        self.shell_mode = ShellModeWidget()
+        self.didactic_window.add_view(self.shell_mode, icon("fa5s.cubes"),
+                                      "Lámina (shell)")
+        self.frame_mode = FrameModeWidget()
+        self.didactic_window.add_view(self.frame_mode,
+                                      icon("fa5s.project-diagram"),
+                                      "Pórtico (frame 3D)")
+        # `tabs` sigue apuntando a las vistas didácticas: el resto del
+        # código (tooltips, navegación de pasos) las sigue encontrando.
+        self.tabs = self.didactic_window.tabs
+        self._set_tab_tooltips()
+
+    def show_didactic_window(self) -> None:
+        """Abre el modo didáctico (menú Ver o Ctrl+D)."""
+        self.didactic_window.show()
+        self.didactic_window.raise_()
+        self.didactic_window.activateWindow()
 
     def _build_header(self) -> QFrame:
         """Banner superior con el título del aplicativo."""

@@ -34,7 +34,7 @@ from ..fem.sections import AreaSection, FrameSection, default_library
 from ..fem.solver_model import solve_model
 from .icons import icon
 from .model_canvas_3d import Mode, ModelCanvas3D
-from .theme import Colors
+from .theme import Colors, style_table
 
 
 def _fmt(v: float) -> str:
@@ -119,6 +119,7 @@ class ModelModeWidget(QWidget):
                           (self.tbl_elem, "Fuerzas / esfuerzos")):
             t.horizontalHeader().setSectionResizeMode(
                 QHeaderView.ResizeMode.Stretch)
+            style_table(t)
             self.tabs_res.addTab(t, nombre)
         derecha.addWidget(self.tabs_res)
         derecha.setStretchFactor(0, 3)
@@ -246,6 +247,14 @@ class ModelModeWidget(QWidget):
         self.btn_run.setProperty("primary", True)
         self.btn_run.clicked.connect(self.solve)
         v.addWidget(self.btn_run)
+
+        self.btn_report = QPushButton(" Reporte de análisis (PDF)")
+        self.btn_report.setIcon(icon("fa5s.file-pdf"))
+        self.btn_report.setToolTip(
+            "Genera el documento con el modelo, las asignaciones y los "
+            "resultados obtenidos.")
+        self.btn_report.clicked.connect(self.export_report)
+        v.addWidget(self.btn_report)
         self.lbl_info = QLabel("")
         self.lbl_info.setWordWrap(True)
         self.lbl_info.setStyleSheet("color:#333; font-size:11px;")
@@ -445,6 +454,34 @@ class ModelModeWidget(QWidget):
         self._on_status(f"Cálculo completado en {t_txt} — "
                         f"desplazamiento máximo {_fmt(u_max)} m.")
         self._update_info()
+
+    def export_report(self) -> None:
+        """Exporta el reporte de análisis del modelo unificado (punto 9)."""
+        if not self.model.members:
+            QMessageBox.information(self, "Modelo vacío",
+                                    "Dibuje al menos un elemento antes de "
+                                    "generar el reporte.")
+            return
+        from pathlib import Path
+        from PySide6.QtWidgets import QFileDialog
+        from ..export.model_report import export_model_report
+
+        ruta, _ = QFileDialog.getSaveFileName(
+            self, "Guardar reporte de análisis",
+            "reporte_modelo.pdf", "Documento PDF (*.pdf)")
+        if not ruta:
+            return
+        QApplication.setOverrideCursor(QCursor(Qt.CursorShape.WaitCursor))
+        try:
+            export_model_report(self.model, self.result, Path(ruta))
+        except Exception as e:
+            QMessageBox.critical(self, "Error al generar el reporte", str(e))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        aviso = ("" if self.result is not None
+                 else " (sin resultados: el modelo no está resuelto)")
+        self._on_status(f"Reporte guardado en {ruta}{aviso}.")
 
     def _fill_results(self) -> None:
         """Paso 9: desplazamientos, reacciones y fuerzas por elemento."""

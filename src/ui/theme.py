@@ -6,6 +6,7 @@ Uso:
     label.setStyleSheet(f"color:{Colors.PRIMARY};")
 """
 from __future__ import annotations
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QFont
 
@@ -21,6 +22,7 @@ class Colors:
     BG_ALT         = "#EEF2F6"   # Gris ligeramente más oscuro — filas alternas
     BORDER         = "#D5DDE5"   # Gris claro — bordes
     BORDER_FOCUS   = "#1F4E78"   # Navy — borde con foco
+    GRID_LINE      = "#E6ECF2"   # Gris muy claro — líneas internas de tablas
     TEXT           = "#212529"   # Casi negro — texto principal
     TEXT_MUTED     = "#6C757D"   # Gris medio — texto secundario
     SUCCESS        = "#28A745"   # Verde — apoyos, OK
@@ -39,12 +41,21 @@ QMainWindow, QWidget {{
 
 QLabel {{
     color: {Colors.TEXT};
+    /* Un poco de aire vertical: los textos explicativos del aplicativo son
+       largos y sin este margen se leen apretados. */
+    padding: 1px 0;
 }}
 
 QLabel[heading="true"] {{
     color: {Colors.PRIMARY};
     font-size: 16pt;
     font-weight: bold;
+}}
+
+/* Texto de ayuda o pie: gris, algo menor, para que no compita con los datos */
+QLabel[hint="true"] {{
+    color: {Colors.TEXT_MUTED};
+    font-size: 9pt;
 }}
 
 QLabel[muted="true"] {{
@@ -295,31 +306,66 @@ QListWidget::item:selected {{
     font-weight: bold;
 }}
 
-/* ============= Tablas ============= */
+/* ============= Tablas =============
+   Las tablas del aplicativo son casi todas NUMÉRICAS y con muchos dígitos.
+   Por eso el cuerpo usa una fuente de ancho fijo: así las cifras quedan
+   alineadas en columna y se comparan de un vistazo (un valor 1.23e-05
+   debajo de otro 9.87e-05 se lee al instante). Los encabezados conservan
+   la tipografía de la interfaz, que es más legible para texto. */
 QTableView {{
     background-color: {Colors.BG};
-    alternate-background-color: {Colors.BG_ALT};
+    alternate-background-color: {Colors.BG_SUBTLE};
     border: 1px solid {Colors.BORDER};
-    gridline-color: {Colors.BORDER};
+    border-radius: 4px;
+    gridline-color: {Colors.GRID_LINE};
     selection-background-color: {Colors.PRIMARY_LIGHT};
     selection-color: {Colors.TEXT};
+    font-family: "Consolas", "Cascadia Mono", "DejaVu Sans Mono", monospace;
+    font-size: 9.5pt;
 }}
 
 QTableView::item {{
-    padding: 4px 6px;
+    padding: 6px 9px;
+    border: none;
+}}
+
+QTableView::item:selected {{
+    background-color: {Colors.PRIMARY_LIGHT};
+    color: {Colors.TEXT};
+}}
+
+QTableView QTableCornerButton::section {{
+    background-color: {Colors.PRIMARY};
+    border: none;
 }}
 
 QHeaderView {{
     background-color: {Colors.PRIMARY};
+    font-family: "Segoe UI", "San Francisco", Arial, sans-serif;
 }}
 
-QHeaderView::section {{
+/* Encabezado de columnas: navy sólido, con aire suficiente para respirar */
+QHeaderView::section:horizontal {{
     background-color: {Colors.PRIMARY};
     color: white;
-    padding: 6px 10px;
+    padding: 7px 11px;
     border: none;
     border-right: 1px solid {Colors.PRIMARY_HOVER};
-    font-weight: bold;
+    font-weight: 600;
+    font-size: 9.5pt;
+}}
+
+/* Encabezado de filas: gris claro, discreto — es solo un índice y no debe
+   competir visualmente con los datos */
+QHeaderView::section:vertical {{
+    background-color: {Colors.BG_ALT};
+    color: {Colors.TEXT_MUTED};
+    padding: 5px 9px;
+    border: none;
+    border-right: 1px solid {Colors.BORDER};
+    border-bottom: 1px solid {Colors.GRID_LINE};
+    font-weight: 500;
+    font-size: 9pt;
 }}
 
 QHeaderView::section:last {{
@@ -457,6 +503,29 @@ QDialog {{
     background-color: {Colors.BG};
 }}
 """
+
+
+def style_table(view) -> None:
+    """Ajustes de presentación que el QSS no puede hacer por sí solo.
+
+    Para qué sirve: deja las tablas legibles sin repetir el mismo bloque en
+    cada widget — filas alternas, altura de fila cómoda, sin rejilla
+    vertical ruidosa y encabezado de filas oculto cuando no aporta nada.
+    """
+    from PySide6.QtWidgets import QAbstractItemView, QHeaderView
+
+    view.setAlternatingRowColors(True)
+    view.setShowGrid(True)
+    view.setWordWrap(False)
+    view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+    view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+    vh = view.verticalHeader()
+    vh.setDefaultSectionSize(26)          # altura de fila cómoda
+    vh.setMinimumSectionSize(22)
+    hh = view.horizontalHeader()
+    hh.setHighlightSections(False)        # el encabezado no cambia al seleccionar
+    hh.setDefaultAlignment(
+        Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter)
 
 
 def apply_theme(app: QApplication) -> None:
