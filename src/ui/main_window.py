@@ -516,10 +516,16 @@ class MainWindow(QMainWindow):
         # Tabs (con iconos vectoriales)
         self.tabs = QTabWidget()
         self.tabs.setIconSize(QSize(18, 18))
-        # El aplicativo cubre CUATRO modelos del documento. Las tres primeras
-        # pestañas son vistas distintas del MISMO modelo plano (Q4); las tres
-        # siguientes son modelos independientes. Los nombres y los tooltips
-        # lo dicen explícitamente para que no haya que adivinarlo.
+        # MODELO: la ventana única de trabajo (Corrección 2). Un solo modelo
+        # donde conviven frame, plane, plate y shell. Va primera porque es
+        # el flujo principal del aplicativo.
+        from .model_mode import ModelModeWidget
+        self.model_mode = ModelModeWidget()
+        self.tabs.addTab(self.model_mode, icon("fa5s.drafting-compass"),
+                         "Modelo")
+        # Las pestañas siguientes son los modos DIDÁCTICOS por formulación:
+        # las tres primeras son vistas del mismo modelo plano (Q4), las tres
+        # últimas son modelos independientes por tipo de elemento.
         self.tabs.addTab(self._build_step_tab(), icon(ICON_TAB_STEPS),
                          "Plano: paso a paso")
         self.tabs.addTab(self._build_editor_tab(), icon(ICON_TAB_EDITOR),
