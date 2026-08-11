@@ -280,8 +280,34 @@ class ModelModeWidget(QWidget):
         b_fit.setToolTip("Ajustar la cámara al modelo completo")
         b_fit.clicked.connect(self.canvas.fit_view)
         fila.addWidget(b_fit)
+
+        from PySide6.QtWidgets import QCheckBox
+        self.chk_labels = QCheckBox("Etiquetas")
+        self.chk_labels.setChecked(True)
+        self.chk_labels.setToolTip("Mostrar el número de cada nodo (N1, N2…)")
+        self.chk_labels.toggled.connect(self._on_labels)
+        fila.addWidget(self.chk_labels)
+
+        self.chk_snap = QCheckBox("Ajustar a grilla")
+        self.chk_snap.setChecked(True)
+        self.chk_snap.setToolTip(
+            "Al dibujar, pegar el punto a la intersección de grilla más "
+            "cercana. Desactívelo para colocar puntos libres.")
+        self.chk_snap.toggled.connect(self._on_snap)
+        fila.addWidget(self.chk_snap)
+
         fila.addStretch(1)
         return fila
+
+    def _on_labels(self, on: bool) -> None:
+        self.canvas.show_labels = on
+        self.canvas.redraw()
+
+    def _on_snap(self, on: bool) -> None:
+        self.grid.snap = on
+        self.canvas.redraw()
+        self._on_status("Ajuste a grilla " + ("activado." if on else
+                                              "desactivado: puntos libres."))
 
     # ------------------------------------------------------------- slots
     def _apply_grid(self) -> None:

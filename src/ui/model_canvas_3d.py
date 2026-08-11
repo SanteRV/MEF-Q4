@@ -50,6 +50,11 @@ _C_AREA_FACE = (0.55, 0.72, 0.92, 0.42)
 _C_PENDING = (0.95, 0.45, 0.10, 1.0)
 _C_SUPPORT = (0.10, 0.55, 0.10, 1.0)
 _C_LOAD = (0.85, 0.20, 0.15, 1.0)
+# Guías en vivo: el punto libre bajo el cursor y el punto ajustado a grilla
+# se distinguen por color, para que el usuario sepa si "enganchó".
+_C_HOVER = (0.20, 0.55, 0.85, 1.0)
+_C_SNAP = (0.95, 0.60, 0.05, 1.0)
+_C_PLANE_FILL = (0.30, 0.55, 0.85, 0.10)
 
 
 class ModelCanvas3D(gl.GLViewWidget):
@@ -78,9 +83,18 @@ class ModelCanvas3D(gl.GLViewWidget):
         self.selected: list[int] = []
         self._pending: list[int] = []       # nodos del elemento en curso
         self._press_pos: Optional[QPointF] = None
-        self._items: list = []              # items dinámicos (modelo)
-        self._grid_items: list = []         # items de la grilla
+        self._items: list = []              # geometría del modelo
+        self._grid_items: list = []         # grilla y plano de trabajo
+        self._overlay_items: list = []      # guías en vivo (hover, previsualización)
 
+        # Retroalimentación en vivo: dónde caería el punto y qué nodo está
+        # bajo el cursor. Se actualiza en cada movimiento del mouse.
+        self._hover: Optional[tuple[float, float, float]] = None
+        self._hover_node: Optional[int] = None
+        self._hover_ajustado: bool = False
+        self.show_labels: bool = True
+
+        self.setMouseTracking(True)     # recibir movimiento sin botón pulsado
         self.setCameraPosition(distance=18.0, elevation=24, azimuth=-55)
         self._add_axes()
         self.redraw()
@@ -298,6 +312,61 @@ class ModelCanvas3D(gl.GLViewWidget):
         self._press_pos = ev.position()
         super().mousePressEvent(ev)
 
+    def mouseMoveEvent(self, ev) -> None:
+        """Actualiza las guías en vivo mientras el mouse se mueve.
+
+        Es lo que hace que dibujar en 3D sea comprensible: antes de hacer
+        clic, el usuario YA VE dónde caerá el punto, si quedó ajustado a la
+        grilla, y cómo va quedando el elemento que está trazando.
+        """
+        super().mouseMoveEvent(ev)
+        if ev.buttons() != Qt.MouseButton.NoButton:
+            # Con un botón pulsado se está orbitando: las guías estorbarían
+            self._hover = None
+            self._hover_node = None
+            self._refresh_overlay()
+            return
+        pos = ev.position()
+        self._hover_node = self._node_at(pos)
+        if self.mode is Mode.SELECT:
+            self._hover = None
+        else:
+            libre = self._point_on_work_plane(pos, snap_px=0.0)
+            ajustado = self._point_on_work_plane(pos)
+            self._hover = ajustado
+            self._hover_ajustado = (
+                ajustado is not None and libre is not None
+                and any(abs(a - b) > 1e-9 for a, b in zip(ajustado, libre)))
+        self._refresh_overlay()
+        self._emit_hover_status()
+
+    def leaveEvent(self, ev) -> None:
+        """Al salir del lienzo se apagan las guías."""
+        self._hover = None
+        self._hover_node = None
+        self._refresh_overlay()
+        super().leaveEvent(ev)
+
+    def _emit_hover_status(self) -> None:
+        """Muestra las coordenadas vivas del punto bajo el cursor."""
+        if self._hover_node is not None:
+            n = self.model.node(self._hover_node)
+            self.status_message.emit(
+                f"Nodo N{n.id + 1} en ({n.x:g}, {n.y:g}, {n.z:g}) — "
+                + self._hint())
+            return
+        if self._hover is None:
+            self.status_message.emit(self._hint())
+            return
+        x, y, z = self._hover
+        marca = " [ajustado a la grilla]" if self._hover_ajustado else ""
+        faltan = ""
+        if self._pending:
+            req = 2 if self.mode is Mode.FRAME else 4
+            faltan = f" — faltan {req - len(self._pending)} punto(s)"
+        self.status_message.emit(
+            f"x = {x:.4g}   y = {y:.4g}   z = {z:.4g}{marca}{faltan}")
+
     def mouseReleaseEvent(self, ev) -> None:
         super().mouseReleaseEvent(ev)
         if self._press_pos is None:
@@ -390,21 +459,99 @@ class ModelCanvas3D(gl.GLViewWidget):
 
     # ------------------------------------------------------------ dibujo
     def redraw(self) -> None:
-        """Redibuja grilla y modelo completos."""
-        for it in self._items + self._grid_items:
+        """Redibuja grilla, modelo y guías."""
+        for it in self._items + self._grid_items + self._overlay_items:
             try:
                 self.removeItem(it)
             except Exception:
                 pass
         self._items.clear()
         self._grid_items.clear()
+        self._overlay_items.clear()
         self._draw_grid()
         self._draw_model()
+        self._draw_overlay()
         self.update()
 
-    def _add(self, item, grid: bool = False) -> None:
+    def _refresh_overlay(self) -> None:
+        """Redibuja SOLO las guías en vivo.
+
+        Se separa del resto para que mover el mouse no obligue a reconstruir
+        la grilla ni el modelo: así el seguimiento del cursor es fluido.
+        """
+        for it in self._overlay_items:
+            try:
+                self.removeItem(it)
+            except Exception:
+                pass
+        self._overlay_items.clear()
+        self._draw_overlay()
+        self.update()
+
+    def _add(self, item, grid: bool = False, overlay: bool = False) -> None:
         self.addItem(item)
-        (self._grid_items if grid else self._items).append(item)
+        if overlay:
+            self._overlay_items.append(item)
+        elif grid:
+            self._grid_items.append(item)
+        else:
+            self._items.append(item)
+
+    def _draw_overlay(self) -> None:
+        """Guías en vivo: punto bajo el cursor y elemento en construcción."""
+        escala = self.grid.size
+
+        # Nodo bajo el cursor: aro resaltado para saber que es "clicable"
+        if self._hover_node is not None:
+            n = self.model.node(self._hover_node)
+            self._add(gl.GLScatterPlotItem(
+                pos=np.array([[n.x, n.y, n.z]]), color=_C_HOVER,
+                size=20, pxMode=True), overlay=True)
+
+        # Punto donde caería el clic
+        if self._hover is not None and self.mode is not Mode.SELECT:
+            hx, hy, hz = self._hover
+            color = _C_SNAP if self._hover_ajustado else _C_HOVER
+            self._add(gl.GLScatterPlotItem(
+                pos=np.array([[hx, hy, hz]]), color=color,
+                size=16, pxMode=True), overlay=True)
+            # Cruz de mira sobre el plano de trabajo, para ubicarlo mejor
+            d = escala * 0.035
+            kind, _ = self.work_plane
+            if kind == "xy":
+                ejes = [((hx - d, hy, hz), (hx + d, hy, hz)),
+                        ((hx, hy - d, hz), (hx, hy + d, hz))]
+            elif kind == "xz":
+                ejes = [((hx - d, hy, hz), (hx + d, hy, hz)),
+                        ((hx, hy, hz - d), (hx, hy, hz + d))]
+            else:
+                ejes = [((hx, hy - d, hz), (hx, hy + d, hz)),
+                        ((hx, hy, hz - d), (hx, hy, hz + d))]
+            pts = [c for seg in ejes for c in seg]
+            self._add(gl.GLLinePlotItem(
+                pos=np.array(pts, dtype=float), color=color, width=1.6,
+                antialias=True, mode="lines"), overlay=True)
+
+        # Elemento en construcción: se ve cómo va quedando
+        if self._pending:
+            puntos = [self.model.node(i) for i in self._pending]
+            traza = [[p.x, p.y, p.z] for p in puntos]
+            if self._hover is not None:
+                traza.append(list(self._hover))
+            if len(traza) >= 2:
+                seg = []
+                for a, b in zip(traza[:-1], traza[1:]):
+                    seg.extend([a, b])
+                # En áreas se insinúa el cierre del polígono
+                if self.mode is Mode.AREA and len(traza) >= 3:
+                    seg.extend([traza[-1], traza[0]])
+                self._add(gl.GLLinePlotItem(
+                    pos=np.array(seg, dtype=float), color=_C_PENDING,
+                    width=2.6, antialias=True, mode="lines"), overlay=True)
+            # Marcar los puntos ya fijados
+            self._add(gl.GLScatterPlotItem(
+                pos=np.array([[p.x, p.y, p.z] for p in puntos]),
+                color=_C_PENDING, size=14, pxMode=True), overlay=True)
 
     def _draw_grid(self) -> None:
         if not self.grid.visible:
@@ -433,6 +580,15 @@ class ModelCanvas3D(gl.GLViewWidget):
                                   color=(0.25, 0.55, 0.85, 0.9), width=2.0,
                                   antialias=True)
         self._add(marco, grid=True)
+
+        # Superficie translúcida del plano activo: sin ella no se percibe
+        # DÓNDE se está dibujando, que era la principal fuente de confusión.
+        v = np.array(esquinas[:4], dtype=float)
+        caras = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
+        relleno = gl.GLMeshItem(vertexes=v, faces=caras, color=_C_PLANE_FILL,
+                                drawEdges=False, smooth=False,
+                                glOptions="translucent")
+        self._add(relleno, grid=True)
 
     def _draw_model(self) -> None:
         m = self.model
@@ -505,6 +661,20 @@ class ModelCanvas3D(gl.GLViewWidget):
             self._add(gl.GLLinePlotItem(
                 pos=np.array([p, fin]), color=_C_LOAD, width=3.0,
                 antialias=True))
+
+        # Etiquetas de nodo: solo si son pocas, para no saturar la vista
+        if self.show_labels and len(m.nodes) <= 60:
+            fuente = QFont("Arial", 8)
+            desplazo = self.grid.size * 0.012
+            for n, p in zip(m.nodes, pts):
+                try:
+                    t = gl.GLTextItem(
+                        pos=(p[0] + desplazo, p[1] + desplazo, p[2] + desplazo),
+                        text=f"N{n.id + 1}", color=(70, 76, 86, 255),
+                        font=fuente)
+                    self._add(t)
+                except Exception:
+                    pass
 
     @staticmethod
     def _cubo(centro: np.ndarray, s: float, color) -> gl.GLMeshItem:
